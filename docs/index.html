@@ -641,7 +641,13 @@
   var STORAGE_SESSION_KEY = 'gcb_session';
   var currentSession = null;
 
-  function getGasUrl() { return localStorage.getItem(STORAGE_URL_KEY) || ''; }
+  // 內建的預設後端網址：新裝置第一次打開就直接可以用，不用手動貼網址。
+  // 之後如果 GAS 網址真的變了（例如重新部署拿到新網址），改這裡一個地方就好；
+  // 使用者也可以自己用畫面上「變更後端網址設定」覆寫成別的網址（會存在自己瀏覽器的 localStorage，
+  // 覆寫掉這個預設值，不影響其他人）。
+  var DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwSf9LKKzxNMZjxvWU-qGUwFcDorzKhB0L9ceElmdH572PUZIL_N1hAvmvBZOPbbHfzCg/exec';
+
+  function getGasUrl() { return localStorage.getItem(STORAGE_URL_KEY) || DEFAULT_GAS_URL; }
   function setGasUrl(url) { localStorage.setItem(STORAGE_URL_KEY, url); }
 
   function getSession() {
