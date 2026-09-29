@@ -1,0 +1,2195 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>案件管制看板</title>
+<style>
+  :root {
+    --primary: #b3261e;
+    --primary-dark: #8c1d17;
+    --bg: #f4f3f1;
+    --card-bg: #ffffff;
+    --border: #ddd8d3;
+    --text: #2b2b2b;
+    --muted: #6b6b6b;
+    --error: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Heiti TC", sans-serif;
+    font-size: 16px;
+  }
+  .app-header {
+    background: var(--primary);
+    color: #fff;
+    padding: 16px 20px;
+    text-align: center;
+  }
+  .app-header h1 { margin: 0; font-size: 1.4rem; }
+  .container {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 { margin-top: 0; font-size: 1.1rem; }
+  .card h3 { margin-top: 0; font-size: 1rem; }
+  label {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 12px 0 4px;
+  }
+  label:first-of-type { margin-top: 0; }
+  input[type="text"], select, textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 1rem;
+    background: #fff;
+    color: var(--text);
+    font-family: inherit;
+  }
+  textarea { resize: vertical; }
+  #p-batch-text { font-family: "Consolas", "Courier New", monospace; font-size: 0.85rem; }
+  .batch-example {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    margin: 8px 0;
+  }
+  button {
+    width: 100%;
+    margin-top: 16px;
+    padding: 12px;
+    border: none;
+    border-radius: 6px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button:hover { background: var(--primary-dark); }
+  .link-btn {
+    width: auto;
+    background: none;
+    color: var(--muted);
+    text-decoration: underline;
+    font-size: 0.85rem;
+    padding: 4px;
+    margin-top: 8px;
+  }
+  .link-btn:hover { background: none; color: var(--text); }
+  .error-text { color: var(--error); font-size: 0.9rem; margin: 10px 0 0; }
+  .hint-text { color: var(--muted); font-size: 0.85rem; margin: 10px 0 0; }
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tab-btn {
+    flex: 1 1 auto;
+    margin: 0;
+    background: #fff;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+    padding: 10px 8px;
+  }
+  /* 案件頁的分頁列（檢核表/人員管制/ICS看板/工作記事/報表看板/設定）：一律單排橫式在頂端，
+     窄螢幕放不下就橫向捲動，不要往下堆疊成好幾排。 */
+  .case-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  .case-tabs .tab-btn {
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    margin-top: 0;
+  }
+  .tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  dl { margin: 0; }
+  dt { font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
+  dt:first-child { margin-top: 0; }
+  dd { margin: 2px 0 0; font-size: 1.05rem; }
+  .app-footer {
+    text-align: center;
+    padding: 20px;
+  }
+
+  .marquee-bar {
+    background: #2b2b2b;
+    color: #fff;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 8px 0;
+  }
+  .marquee-track {
+    display: inline-block;
+    padding-left: 100%;
+    animation: marquee-scroll 20s linear infinite;
+  }
+  @keyframes marquee-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
+  }
+
+  .case-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .case-header .meta { flex: 1; }
+  .case-header h2 { margin: 0 0 4px; }
+
+  .checklist-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .checklist-item:last-child { border-bottom: none; }
+  .checklist-item input[type="checkbox"] { width: auto; margin-top: 3px; flex-shrink: 0; }
+  .checklist-meta { font-size: 0.8rem; color: var(--muted); }
+
+  .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 8px; }
+  .data-table th, .data-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 4px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .table-scroll { overflow-x: auto; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    vertical-align: middle;
+  }
+  .badge-open, .badge-task-done { background: #e8f5e9; color: #2e7d32; }
+  .badge-closed { background: #eeeeee; color: #757575; }
+  .badge-task-active { background: #fff3e0; color: #e65100; }
+  .badge-task-abort { background: #ffebee; color: #c62828; }
+  .badge-standby { background: #eef2f7; color: #445; }
+  .badge-onduty { background: #fff3e0; color: #e65100; }
+  .badge-left { background: #eeeeee; color: #757575; }
+
+  .site-card { border-left: 4px solid var(--primary); }
+  .site-card.child { margin-left: 20px; border-left-color: var(--muted); background: #fafafa; }
+  .site-group .card { margin-bottom: 10px; }
+  .site-group .card:last-child { margin-bottom: 0; }
+  .site-card-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .site-card-header h3 { margin: 0; }
+  .site-actions, .task-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .site-actions button, .task-actions button {
+    width: auto; margin-top: 0; padding: 6px 10px; font-size: 0.85rem;
+  }
+  .btn-secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: #f0f0f0; }
+
+  .task-card {
+    background: #fafafa;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+  }
+  .task-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .task-header strong { font-size: 0.95rem; }
+  .member-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .member-tag { background: #e0e0e0; border-radius: 4px; padding: 2px 6px; font-size: 0.8rem; }
+
+  .checkbox-list {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    margin-top: 6px;
+  }
+  .checkbox-list label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.9rem; padding: 4px 0; color: var(--text); margin: 0;
+  }
+  .checkbox-list input[type="checkbox"] { width: auto; }
+
+  .inline-form { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+
+  .log-entry .site-card-header { margin-bottom: 0; }
+
+  .gantt-site-block { margin-bottom: 18px; }
+  .gantt-site-title { font-weight: bold; margin-bottom: 8px; }
+  .gantt-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .gantt-label { width: 42%; font-size: 0.78rem; flex-shrink: 0; line-height: 1.3; }
+  .gantt-track {
+    flex: 1;
+    position: relative;
+    height: 20px;
+    background: #eee;
+    border-radius: 4px;
+    min-width: 60px;
+  }
+  .gantt-bar {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: var(--primary);
+    border-radius: 4px;
+  }
+  .gantt-bar.ongoing {
+    background-image: repeating-linear-gradient(45deg, var(--primary), var(--primary) 6px, #dd8f89 6px, #dd8f89 12px);
+  }
+  .report-controls label:first-of-type { margin-top: 0; }
+
+  .toggle-inline {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+
+  .case-list-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    width: 100%; margin-top: 8px; text-align: left; padding: 12px;
+  }
+  .case-list-item:first-child { margin-top: 0; }
+  .case-list-item span:first-child { font-weight: bold; }
+
+  .badge-overdue { background: #ffebee; color: #c62828; font-weight: bold; }
+  .task-card.overdue { border: 1px solid #e57373; background: #fff5f5; }
+
+  #maps-list .map-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+  }
+  #maps-list .map-item:last-child { border-bottom: none; }
+  #maps-list .map-item button { width: auto; margin: 0; padding: 6px 10px; font-size: 0.85rem; }
+
+  @media print {
+    .no-print, .app-header, .app-footer, .case-tabs, #case-marquee-bar, .site-actions,
+    #home-view, .link-btn, button { display: none !important; }
+    .card { border: none; padding: 0; }
+    body { background: #fff; }
+  }
+
+  /* 寬螢幕（桌機）：容器放寬，內容多的區塊改用網格排列，避免整頁擠在中間、兩側大片留白；
+     單純輸入表單（登入、建案、單筆報到、設定…）維持窄版置中，太寬的輸入框反而不好用。 */
+  @media (min-width: 900px) {
+    .container { max-width: 1100px; }
+    #home-view { max-width: 480px; margin: 0 auto; }
+    #config-card, #ics-new-site-form, #maps-upload-form,
+    #panel-settings .card:first-child {
+      max-width: 480px;
+    }
+    /* 人員管制：單筆報到（窄）跟批次報到（要寬一點才看得清楚表格式輸入）並排，
+       已報到人員清單整條在下面獨立一列。 */
+    .personnel-forms-row {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .personnel-forms-row .card { margin-bottom: 0; }
+
+    /* 報表控制列：從一排一排的表單改成橫向工具列，桌機上一眼看完不用一直往下捲 */
+    .report-controls {
+      max-width: none;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 20px;
+    }
+    .report-controls .toolbar-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .report-controls .toolbar-field[hidden] { display: none; }
+    .report-controls .toolbar-field label { margin: 0; }
+    .report-controls select,
+    .report-controls input { width: auto; min-width: 180px; }
+    .report-controls button#report-refresh-btn { width: auto; margin-top: 0; white-space: nowrap; }
+    /* 欄數固定等於「主場地」的數量（由 JS 動態設定 style.gridTemplateColumns），
+       這樣不管有幾個主場地都會排在同一橫排，數量變多欄位自動變窄；子場地永遠疊在自己
+       主場地那一欄底下（因為主場地+子場地包在同一個 .site-group 裡，見 renderIcsBoard）。
+       太多主場地、欄寬撐到低於下面 JS 設的下限時，用橫向捲動而不是硬擠爆版面。 */
+    #ics-sites-container {
+      display: grid;
+      gap: 16px;
+      align-items: start;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .site-group > .card:first-child { margin-bottom: 0; }
+    #checklist-groups {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+      align-items: start;
+    }
+    #checklist-groups .card { margin-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+
+  <div id="marquee-bar" class="marquee-bar" hidden>
+    <div class="marquee-track" id="marquee-track"></div>
+  </div>
+
+  <header class="app-header">
+    <h1>案件管制看板</h1>
+  </header>
+
+  <main class="container">
+
+    <div id="home-view">
+
+      <section id="config-card" class="card" hidden>
+        <h2>初次設定：後端網址</h2>
+        <p class="hint-text">請貼上 GAS 部署後拿到的 Web App 網址（結尾是 /exec）。只需設定一次，會記在這台裝置的瀏覽器裡。</p>
+        <label>後端網址</label>
+        <input type="text" id="gas-url-input" placeholder="https://script.google.com/macros/s/xxxx/exec">
+        <button id="save-gas-url-btn">儲存</button>
+        <p id="config-error" class="error-text"></p>
+      </section>
+
+      <section id="forms-area" hidden>
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="enter">進入既有案件</button>
+          <button class="tab-btn" data-tab="create">建立案件</button>
+        </div>
+
+        <div id="tab-enter" class="tab-panel">
+          <div class="card" id="case-list-card">
+            <h3>選擇案件</h3>
+            <div id="case-select-list"><p class="hint-text">載入中…</p></div>
+            <p id="case-list-error" class="error-text"></p>
+          </div>
+
+          <div class="card" id="case-code-card" hidden>
+            <h3 id="selected-case-name"></h3>
+            <button id="change-case-btn" class="link-btn">← 換一個案件</button>
+            <label>驗證碼（檢視碼或管理碼）</label>
+            <input type="text" id="enter-code" placeholder="輸入代碼">
+            <div id="enter-name-field" hidden>
+              <label>操作者姓名</label>
+              <input type="text" id="enter-operator-name" placeholder="管理模式需要填寫姓名">
+            </div>
+            <button id="enter-btn">進入</button>
+            <p id="enter-error" class="error-text"></p>
+            <p id="enter-hint" class="hint-text"></p>
+          </div>
+        </div>
+
+        <div id="tab-create" class="tab-panel" hidden>
+          <div class="card">
+            <label>案件類別</label>
+            <select id="create-category">
+              <option value="山域">山域</option>
+              <option value="水域">水域</option>
+              <option value="火警">火警</option>
+              <option value="化災">化災</option>
+            </select>
+            <label>案件名稱</label>
+            <input type="text" id="create-name" placeholder="例如：○○山搜救">
+            <label>檢視碼</label>
+            <input type="text" id="create-view-code" placeholder="給檢視人員使用">
+            <label>管理碼</label>
+            <input type="text" id="create-admin-code" placeholder="給操作人員使用，需與檢視碼不同">
+            <label>建立人姓名</label>
+            <input type="text" id="create-operator-name" placeholder="你的姓名">
+            <button id="create-btn">建立案件</button>
+            <p id="create-error" class="error-text"></p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <div id="case-view" hidden>
+
+      <div id="case-marquee-bar" class="marquee-bar" hidden>
+        <div class="marquee-track" id="case-marquee-track"></div>
+      </div>
+
+      <section class="card case-header">
+        <div class="meta">
+          <h2 id="case-title"></h2>
+          <p class="hint-text" id="case-meta"></p>
+          <p id="offline-indicator" class="badge badge-onduty" hidden></p>
+        </div>
+      </section>
+      <div class="site-actions">
+        <button id="case-logout-btn" class="link-btn">登出</button>
+        <button id="case-close-btn" class="btn-secondary" hidden>結案</button>
+      </div>
+
+      <div class="tabs case-tabs">
+        <button class="tab-btn active" data-case-tab="checklist">檢核表</button>
+        <button class="tab-btn" data-case-tab="personnel">人員管制</button>
+        <button class="tab-btn" data-case-tab="ics">ICS看板</button>
+        <button class="tab-btn" data-case-tab="log">工作記事</button>
+        <button class="tab-btn" data-case-tab="report">報表看板</button>
+        <button class="tab-btn" data-case-tab="settings" id="settings-tab-btn" hidden>設定</button>
+      </div>
+
+      <div id="panel-checklist" class="case-panel">
+        <p id="checklist-error" class="error-text"></p>
+        <div id="checklist-groups"></div>
+      </div>
+
+      <div id="panel-personnel" class="case-panel" hidden>
+        <div class="personnel-forms-row">
+        <div class="card" id="personnel-admin-forms">
+          <h3>單筆報到</h3>
+          <label>單位</label>
+          <input type="text" id="p-unit">
+          <label>子單位</label>
+          <input type="text" id="p-subunit">
+          <label>姓名</label>
+          <input type="text" id="p-name">
+          <label>專長</label>
+          <input type="text" id="p-specialty">
+          <label>報到位置</label>
+          <input type="text" id="p-zone" value="指揮站">
+          <button id="p-checkin-btn">報到</button>
+          <p id="p-error" class="error-text"></p>
+        </div>
+
+        <div class="card" id="personnel-batch-form">
+          <h3>批次報到（貼上多行）</h3>
+          <p class="hint-text">
+            每行一人，欄位順序固定是：<strong>單位、子單位、姓名、專長、報到位置</strong>（姓名是第 3 欄，必填；
+            其他欄位都可以留空，留空的報到位置預設「指揮站」）。這個框支援三種輸入方式，挑你方便的用：
+          </p>
+          <p class="hint-text">
+            <strong>① 從 Excel／Google 試算表複製整塊貼上</strong>（欄位自動是 Tab 分隔，最推薦，最不容易打錯欄位）。<br>
+            <strong>② 直接在這裡打字，欄位中間按 Tab 鍵跳到下一欄</strong>（這個框已特別設定，按 Tab 不會跳出去，會直接輸入跳格符號，體驗跟 Excel 一樣）。<br>
+            <strong>③ 用逗號「,」分隔欄位，或整行只打姓名</strong>（其他欄位留空不打，例如只想很快報到一串名單）。
+          </p>
+          <div class="batch-example" id="batch-example-text">第一救護隊,A小隊,王小明,EMT,指揮站
+第一救護隊,A小隊,李小華,,指揮站
+,,陳大同,,</div>
+          <button id="p-batch-fill-example-btn" class="btn-secondary" style="width:100%;">填入上面的範例試試看</button>
+          <textarea id="p-batch-text" rows="6" placeholder="單位,子單位,姓名,專長,報到位置"></textarea>
+          <button id="p-batch-btn">批次報到</button>
+          <p id="p-batch-result" class="hint-text"></p>
+        </div>
+        </div>
+
+        <div class="card">
+          <h3>已報到人員（<span id="p-count">0</span>）</h3>
+          <div class="table-scroll">
+            <table class="data-table" id="personnel-table">
+              <thead><tr><th>單位</th><th>子單位</th><th>姓名</th><th>專長</th><th>位置</th><th>報到時間</th></tr></thead>
+              <tbody id="personnel-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="panel-ics" class="case-panel" hidden>
+        <p id="ics-error" class="error-text"></p>
+        <div class="card" id="ics-new-site-form">
+          <h3>新增主場地</h3>
+          <input type="text" id="site-name-input" placeholder="場地名稱，例如：前進指揮所">
+          <button id="site-create-btn">新增</button>
+        </div>
+        <label class="toggle-inline">
+          <input type="checkbox" id="show-closed-sites-toggle" style="width:auto; margin-right:6px;">
+          顯示已撤收的場地
+        </label>
+        <div id="ics-sites-container"></div>
+
+        <div class="card" id="maps-upload-form">
+          <h3>圖資上傳</h3>
+          <p class="hint-text">會自動壓縮成長邊 1600px 以內的 JPEG 再上傳，圖片存在 Drive（不公開分享），檢視時透過系統取圖。</p>
+          <label>圖片檔案</label>
+          <input type="file" id="map-file-input" accept="image/*">
+          <label>圖資名稱</label>
+          <input type="text" id="map-name-input" placeholder="例如：東側搜索範圍圖">
+          <label>關聯場地（可不選，代表全案圖資）</label>
+          <select id="map-site-select"><option value="">（全案圖資，不指定場地）</option></select>
+          <button id="map-upload-btn">上傳</button>
+          <p id="map-upload-error" class="error-text"></p>
+        </div>
+
+        <div class="card">
+          <h3>已上傳圖資</h3>
+          <div id="maps-list"></div>
+        </div>
+
+        <div id="map-viewer" class="card" hidden>
+          <h3 id="map-viewer-title"></h3>
+          <img id="map-viewer-img" style="max-width:100%; border-radius:6px;">
+          <button id="map-viewer-close-btn" class="btn-secondary">關閉</button>
+        </div>
+      </div>
+      <div id="panel-log" class="case-panel" hidden>
+        <p id="log-error" class="error-text"></p>
+        <button id="log-print-btn" class="btn-secondary no-print">列印本頁／另存 PDF</button>
+        <div id="log-timeline"></div>
+      </div>
+
+      <div id="panel-report" class="case-panel" hidden>
+        <p id="report-error" class="error-text"></p>
+        <div class="card report-controls">
+          <div class="toolbar-field">
+            <label>檢視模式</label>
+            <select id="report-mode">
+              <option value="all">全案</option>
+              <option value="day">單日</option>
+            </select>
+          </div>
+          <div class="toolbar-field" id="report-date-field" hidden>
+            <label>日期</label>
+            <input type="date" id="report-date">
+          </div>
+          <div class="toolbar-field">
+            <label>統計分組依據</label>
+            <select id="report-groupby">
+              <option value="unit">單位</option>
+              <option value="sub_unit">子單位</option>
+              <option value="site">工作場地</option>
+            </select>
+          </div>
+          <button id="report-refresh-btn">重新整理報表</button>
+        </div>
+
+        <button id="report-print-btn" class="btn-secondary no-print">列印本頁／另存 PDF</button>
+
+        <div class="card">
+          <h3>統計</h3>
+          <div class="table-scroll">
+            <table class="data-table" id="report-table">
+              <thead><tr><th id="report-group-header">分組</th><th>人數</th><th>人次</th><th>人時</th><th>報到人數</th></tr></thead>
+              <tbody id="report-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>甘特圖（依工作場地）</h3>
+          <p class="hint-text">斜紋長條代表任務還在進行中（持續作業），長條延伸到現在。</p>
+          <div id="gantt-container"></div>
+        </div>
+      </div>
+
+      <div id="panel-settings" class="case-panel" hidden>
+        <p id="settings-error" class="error-text"></p>
+        <div class="card">
+          <h3>這個案件的功能開關</h3>
+          <p class="hint-text">這裡的設定只影響這個案件，優先於全域設定。全域設定要到試算表 Settings 工作表編輯（case_id 留空的列）。</p>
+
+          <label><input type="checkbox" id="setting-view-code-enabled" style="width:auto; margin-right:6px;">允許用檢視碼進入</label>
+          <label><input type="checkbox" id="setting-admin-code-enabled" style="width:auto; margin-right:6px;">允許用管理碼進入</label>
+          <label><input type="checkbox" id="setting-case-view-enabled" style="width:auto; margin-right:6px;">允許檢視這個案件（總開關）</label>
+          <label><input type="checkbox" id="setting-marquee-enabled" style="width:auto; margin-right:6px;">顯示這個案件的跑馬燈公告</label>
+          <label><input type="checkbox" id="setting-name-mask-enabled" style="width:auto; margin-right:6px;">檢視模式姓名遮罩（王○明）</label>
+
+          <label>山域任務逾時警示時數</label>
+          <input type="text" id="setting-overdue-hours" placeholder="4">
+          <p class="hint-text">只有案件類別是「山域」才會用到，任務派遣中超過這個時數沒結束，ICS 看板會標紅提醒。</p>
+
+          <button id="settings-save-btn">儲存設定</button>
+          <p id="settings-save-result" class="hint-text"></p>
+        </div>
+
+        <div class="card">
+          <h3>案件跑馬燈公告</h3>
+          <p class="hint-text">內容要到試算表 Marquee 工作表新增（case_id 填這個案件的 case_id、enabled 填 TRUE）。這裡先預覽目前生效中的內容：</p>
+          <div id="case-marquee-preview" class="hint-text"></div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <footer class="app-footer">
+    <button id="change-gas-url-btn" class="link-btn">變更後端網址設定</button>
+  </footer>
+
+<script>
+  var STORAGE_URL_KEY = 'gcb_gas_url';
+  var STORAGE_SESSION_KEY = 'gcb_session';
+  var currentSession = null;
+
+  function getGasUrl() { return localStorage.getItem(STORAGE_URL_KEY) || ''; }
+  function setGasUrl(url) { localStorage.setItem(STORAGE_URL_KEY, url); }
+
+  function getSession() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_SESSION_KEY) || 'null'); }
+    catch (e) { return null; }
+  }
+  function setSession(s) { localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(s)); }
+  function clearSession() { localStorage.removeItem(STORAGE_SESSION_KEY); }
+
+  // 特意不設定 Content-Type，讓瀏覽器用預設的 text/plain，
+  // 這樣才不會觸發 CORS 預檢請求（Apps Script 沒有處理 OPTIONS，預檢一定失敗）。
+  function callApi(action, payload) {
+    var url = getGasUrl();
+    if (!url) return Promise.reject(new Error('尚未設定後端網址'));
+    return fetch(url, {
+      method: 'POST',
+      body: JSON.stringify(Object.assign({ action: action }, payload || {}))
+    }).then(function (res) { return res.json(); });
+  }
+
+  /**
+   * 按鈕在等待非同步結果（呼叫後端）期間，鎖住按鈕、把文字換成「處理中…」，避免使用者
+   * 以為沒點到而重複點擊造成重複送出。promise 結束（不管成功失敗）就恢復原樣。
+   * 用法：在按鈕的 click handler 裡，把原本 callApi(...).then(...) 那串包起來：
+   *   withBusy(btn, callApi(...).then(...).catch(...))
+   * 回傳值就是傳進來的 promise 本身，所以外面該接的 .then/.catch 不受影響。
+   */
+  function withBusy(btn, promise) {
+    if (!btn || btn.disabled) return promise;
+    var originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '處理中…';
+    var restore = function () {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    };
+    promise.then(restore, restore);
+    return promise;
+  }
+
+  function formatTime(iso) {
+    if (!iso) return '';
+    return String(iso).replace('T', ' ').substring(0, 16);
+  }
+
+  // 專門給「用 Date 物件算出來的時間」顯示用（例如甘特圖的範圍起訖）。
+  // 不能用 Date.toISOString()，那個一定回傳 UTC，跟系統其他地方顯示的台灣時間會差 8 小時。
+  function formatDateTaipei(date) {
+    var parts = new Intl.DateTimeFormat('zh-TW', {
+      timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(date);
+    var map = {};
+    parts.forEach(function (p) { map[p.type] = p.value; });
+    return map.year + '-' + map.month + '-' + map.day + ' ' + map.hour + ':' + map.minute;
+  }
+
+  // ---------- 首頁 / 登入畫面 ----------
+
+  function showHomeView() {
+    document.getElementById('case-view').hidden = true;
+    document.getElementById('home-view').hidden = false;
+    if (getGasUrl()) loadCaseList();
+  }
+
+  function init() {
+    var url = getGasUrl();
+    document.getElementById('config-card').hidden = !!url;
+    document.getElementById('forms-area').hidden = !url;
+
+    var session = getSession();
+    if (session && url) {
+      callApi('checkToken', { token: session.token }).then(function (res) {
+        if (res.ok) {
+          currentSession = session;
+          enterCaseView();
+        } else {
+          clearSession();
+          showHomeView();
+        }
+      }).catch(function () { showHomeView(); });
+    } else {
+      showHomeView();
+    }
+
+    if (url) loadMarquee();
+  }
+
+  function loadMarquee() {
+    callApi('getHome', {}).then(function (res) {
+      var bar = document.getElementById('marquee-bar');
+      var track = document.getElementById('marquee-track');
+      if (res.ok && res.marquee_enabled && res.marquee.length > 0) {
+        track.textContent = res.marquee.map(function (m) { return m.content; }).join('　｜　');
+        bar.hidden = false;
+      } else {
+        bar.hidden = true;
+      }
+    }).catch(function () {});
+  }
+
+  document.getElementById('save-gas-url-btn').addEventListener('click', function () {
+    var val = document.getElementById('gas-url-input').value.trim();
+    var errEl = document.getElementById('config-error');
+    if (val.indexOf('https://script.google.com/') !== 0) {
+      errEl.textContent = '網址格式看起來不對，請確認是部署後拿到、結尾 /exec 的網址';
+      return;
+    }
+    errEl.textContent = '';
+    setGasUrl(val);
+    init();
+  });
+
+  document.getElementById('change-gas-url-btn').addEventListener('click', function () {
+    document.getElementById('gas-url-input').value = getGasUrl();
+    document.getElementById('config-card').hidden = false;
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('#home-view .tab-btn'), function (btn) {
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('#home-view .tab-btn'), function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      var target = btn.getAttribute('data-tab');
+      document.getElementById('tab-enter').hidden = target !== 'enter';
+      document.getElementById('tab-create').hidden = target !== 'create';
+    });
+  });
+
+  // ---- 選擇既有案件 ----
+
+  var selectedCaseId = '';
+
+  function loadCaseList() {
+    var listEl = document.getElementById('case-select-list');
+    var errEl = document.getElementById('case-list-error');
+    errEl.textContent = '';
+    callApi('listCases', {}).then(function (res) {
+      if (!res.ok) { errEl.textContent = res.error || '載入案件清單失敗'; return; }
+      renderCaseList(res.cases);
+    }).catch(function (e) {
+      listEl.innerHTML = '';
+      errEl.textContent = '連線失敗：' + e.message;
+    });
+  }
+
+  function renderCaseList(cases) {
+    var listEl = document.getElementById('case-select-list');
+    listEl.innerHTML = '';
+
+    if (cases.length === 0) {
+      listEl.innerHTML = '<p class="hint-text">目前還沒有任何案件，切到「建立案件」分頁新增第一個案件。</p>';
+      return;
+    }
+
+    cases.forEach(function (c) {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'btn-secondary case-list-item';
+
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = c.name;
+      item.appendChild(nameSpan);
+
+      var metaSpan = document.createElement('span');
+      metaSpan.className = 'badge ' + (c.status === '進行中' ? 'badge-open' : 'badge-closed');
+      metaSpan.textContent = c.category + '・' + c.status;
+      item.appendChild(metaSpan);
+
+      item.addEventListener('click', function () { selectCase(c.case_id, c.name); });
+      listEl.appendChild(item);
+    });
+  }
+
+  function selectCase(caseId, name) {
+    selectedCaseId = caseId;
+    document.getElementById('selected-case-name').textContent = name;
+    document.getElementById('case-list-card').hidden = true;
+    document.getElementById('case-code-card').hidden = false;
+    document.getElementById('enter-code').value = '';
+    document.getElementById('enter-operator-name').value = '';
+    document.getElementById('enter-name-field').hidden = true;
+    document.getElementById('enter-error').textContent = '';
+    document.getElementById('enter-hint').textContent = '';
+    document.getElementById('enter-code').focus();
+  }
+
+  document.getElementById('change-case-btn').addEventListener('click', function () {
+    selectedCaseId = '';
+    document.getElementById('case-code-card').hidden = true;
+    document.getElementById('case-list-card').hidden = false;
+  });
+
+  document.getElementById('enter-btn').addEventListener('click', function () {
+    var btn = this;
+    var code = document.getElementById('enter-code').value.trim();
+    var operatorName = document.getElementById('enter-operator-name').value.trim();
+    var errEl = document.getElementById('enter-error');
+    var hintEl = document.getElementById('enter-hint');
+    errEl.textContent = '';
+    hintEl.textContent = '';
+
+    if (!code) { errEl.textContent = '請輸入驗證碼'; return; }
+
+    withBusy(btn, callApi('enterCase', { code: code, operator_name: operatorName, case_id: selectedCaseId })).then(function (res) {
+      if (!res.ok) {
+        if (res.need_operator_name) {
+          document.getElementById('enter-name-field').hidden = false;
+          hintEl.textContent = '這是管理碼，請輸入你的姓名後再按一次進入';
+        } else {
+          errEl.textContent = res.error || '進入失敗';
+        }
+        return;
+      }
+      currentSession = { token: res.token, role: res.role, case: res.case, operator_name: operatorName };
+      setSession(currentSession);
+      enterCaseView();
+    }).catch(function (e) {
+      errEl.textContent = '連線失敗：' + e.message;
+    });
+  });
+
+  document.getElementById('create-btn').addEventListener('click', function () {
+    var btn = this;
+    var payload = {
+      category: document.getElementById('create-category').value,
+      name: document.getElementById('create-name').value.trim(),
+      view_code: document.getElementById('create-view-code').value,
+      admin_code: document.getElementById('create-admin-code').value,
+      operator_name: document.getElementById('create-operator-name').value.trim()
+    };
+    var errEl = document.getElementById('create-error');
+    errEl.textContent = '';
+
+    withBusy(btn, callApi('createCase', payload)).then(function (res) {
+      if (!res.ok) { errEl.textContent = res.error || '建立失敗'; return; }
+      currentSession = { token: res.token, role: res.role, case: res.case, operator_name: payload.operator_name };
+      setSession(currentSession);
+      enterCaseView();
+    }).catch(function (e) {
+      errEl.textContent = '連線失敗：' + e.message;
+    });
+  });
+
+  // ---------- 案件頁 ----------
+
+  // 案件結案後整個唯讀，就算是管理身分進來也不能再操作——判斷「畫面上該不該顯示管理按鈕」
+  // 一律呼叫這個函式，不要直接看 currentSession.role。
+  function isEffectiveAdmin() {
+    return currentSession.role === 'admin' && currentSession.case.status !== '結案';
+  }
+
+  function enterCaseView() {
+    document.getElementById('home-view').hidden = true;
+    document.getElementById('case-view').hidden = false;
+
+    var isClosed = currentSession.case.status === '結案';
+    var roleText = currentSession.role === 'admin'
+      ? (isClosed ? '管理模式（案件已結案，唯讀）' : '管理模式（可操作）')
+      : '檢視模式（唯讀）';
+    document.getElementById('case-title').textContent = currentSession.case.name;
+    document.getElementById('case-meta').textContent =
+      currentSession.case.category + '・' + currentSession.case.status + '・' + roleText
+      + (currentSession.operator_name ? '・' + currentSession.operator_name : '');
+
+    var isAdmin = isEffectiveAdmin();
+    document.getElementById('personnel-admin-forms').hidden = !isAdmin;
+    document.getElementById('personnel-batch-form').hidden = !isAdmin;
+    document.getElementById('settings-tab-btn').hidden = currentSession.role !== 'admin';
+    document.getElementById('case-close-btn').hidden = !(currentSession.role === 'admin' && !isClosed);
+
+    loadChecklist();
+    loadPersonnel();
+    loadCaseMarquee();
+    updateOfflineIndicator();
+  }
+
+  document.getElementById('case-logout-btn').addEventListener('click', function () {
+    clearSession();
+    currentSession = null;
+    showHomeView();
+  });
+
+  document.getElementById('case-close-btn').addEventListener('click', function () {
+    doCloseCase(false);
+  });
+
+  function doCloseCase(force) {
+    if (!window.confirm(force ? '還有場地尚未撤收，確定要強制結案嗎？' : '確定要把這個案件結案嗎？結案後將無法再修改。')) return;
+    var btn = document.getElementById('case-close-btn');
+    withBusy(btn, callApi('closeCase', { token: currentSession.token, case_id: currentSession.case.case_id, force: !!force }))
+      .then(function (res) {
+        if (!res.ok) {
+          if (res.need_confirm) { doCloseCase(true); return; }
+          window.alert(res.error || '結案失敗');
+          return;
+        }
+        currentSession.case.status = '結案';
+        setSession(currentSession);
+        enterCaseView();
+      }).catch(function (e) { window.alert('連線失敗：' + e.message); });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.case-tabs .tab-btn'), function (btn) {
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.case-tabs .tab-btn'), function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      var target = btn.getAttribute('data-case-tab');
+      Array.prototype.forEach.call(document.querySelectorAll('.case-panel'), function (panel) {
+        panel.hidden = true;
+      });
+      document.getElementById('panel-' + target).hidden = false;
+      if (target === 'ics') { loadIcsBoard(); loadMaps(); }
+      if (target === 'log') loadWorkLog();
+      if (target === 'report') loadReport();
+      if (target === 'settings') loadSettings();
+    });
+  });
+
+  // ---- 檢核表 ----
+
+  function loadChecklist() {
+    var errEl = document.getElementById('checklist-error');
+    errEl.textContent = '';
+    callApi('getCaseChecklist', { token: currentSession.token, case_id: currentSession.case.case_id })
+      .then(function (res) {
+        if (!res.ok) { errEl.textContent = res.error || '載入檢核表失敗'; return; }
+        renderChecklist(res.checklist);
+      }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  function renderChecklist(items) {
+    var container = document.getElementById('checklist-groups');
+    container.innerHTML = '';
+
+    if (items.length === 0) {
+      container.innerHTML = '<div class="card"><p class="hint-text">這個類別還沒有檢核表範本，請到試算表 Checklists 工作表新增（欄位：category、group、item、sort）。</p></div>';
+      return;
+    }
+
+    var currentGroup = null;
+    var groupBody = null;
+
+    items.forEach(function (it) {
+      if (it.group !== currentGroup) {
+        currentGroup = it.group;
+        var card = document.createElement('div');
+        card.className = 'card';
+        var h3 = document.createElement('h3');
+        h3.textContent = it.group;
+        card.appendChild(h3);
+        groupBody = document.createElement('div');
+        card.appendChild(groupBody);
+        container.appendChild(card);
+      }
+
+      var row = document.createElement('label');
+      row.className = 'checklist-item';
+
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!it.done;
+      cb.disabled = !isEffectiveAdmin();
+      cb.addEventListener('change', function () { toggleChecklistItem(it.item, cb.checked); });
+
+      var span = document.createElement('span');
+      span.textContent = it.item;
+
+      row.appendChild(cb);
+      row.appendChild(span);
+
+      if (it.done) {
+        var meta = document.createElement('span');
+        meta.className = 'checklist-meta';
+        meta.textContent = '（' + it.done_by + '・' + formatTime(it.done_at) + '）';
+        row.appendChild(meta);
+      }
+
+      groupBody.appendChild(row);
+    });
+  }
+
+  function toggleChecklistItem(item, done) {
+    var errEl = document.getElementById('checklist-error');
+    errEl.textContent = '';
+    callApiOrQueue('toggleChecklistItem', {
+      token: currentSession.token,
+      case_id: currentSession.case.case_id,
+      item: item,
+      done: done
+    }).then(function (res) {
+      if (res.queued) { errEl.textContent = ''; return; } // 離線先記錄，畫面不用重載（重載會因為連不上而顯示錯誤）
+      if (!res.ok) { errEl.textContent = res.error || '更新失敗'; }
+      loadChecklist();
+    }).catch(function (e) {
+      errEl.textContent = '連線失敗：' + e.message;
+      loadChecklist();
+    });
+  }
+
+  // ---- 人員管制 ----
+
+  function loadPersonnel() {
+    callApi('getPersonnel', { token: currentSession.token, case_id: currentSession.case.case_id })
+      .then(function (res) {
+        if (!res.ok) return;
+        renderPersonnel(res.personnel);
+      });
+  }
+
+  function renderPersonnel(list) {
+    var tbody = document.getElementById('personnel-tbody');
+    tbody.innerHTML = '';
+    list.forEach(function (p) {
+      var tr = document.createElement('tr');
+      [p.unit, p.sub_unit, p.name, p.specialty, p.checkin_zone, formatTime(p.checkin_at)].forEach(function (val) {
+        var td = document.createElement('td');
+        td.textContent = val || '';
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    document.getElementById('p-count').textContent = list.length;
+  }
+
+  document.getElementById('p-checkin-btn').addEventListener('click', function () {
+    var btn = this;
+    var payload = {
+      token: currentSession.token,
+      case_id: currentSession.case.case_id,
+      unit: document.getElementById('p-unit').value.trim(),
+      sub_unit: document.getElementById('p-subunit').value.trim(),
+      name: document.getElementById('p-name').value.trim(),
+      specialty: document.getElementById('p-specialty').value.trim(),
+      checkin_zone: document.getElementById('p-zone').value.trim() || '指揮站'
+    };
+    var errEl = document.getElementById('p-error');
+    errEl.textContent = '';
+
+    withBusy(btn, callApiOrQueue('checkinPersonnel', payload)).then(function (res) {
+      if (res.queued) {
+        errEl.className = 'hint-text';
+        errEl.textContent = '目前離線，已記錄這筆報到，恢復連線後會自動送出。';
+      } else if (!res.ok) {
+        errEl.className = 'error-text';
+        errEl.textContent = res.error || '報到失敗';
+        return;
+      } else {
+        errEl.textContent = '';
+      }
+      document.getElementById('p-unit').value = '';
+      document.getElementById('p-subunit').value = '';
+      document.getElementById('p-name').value = '';
+      document.getElementById('p-specialty').value = '';
+      document.getElementById('p-zone').value = '指揮站';
+      if (!res.queued) loadPersonnel();
+    }).catch(function (e) {
+      errEl.className = 'error-text';
+      errEl.textContent = '連線失敗：' + e.message;
+    });
+  });
+
+  // 文字框裡按 Tab 鍵，瀏覽器預設會跳到下一個表單欄位、不會真的輸入 Tab 字元，
+  // 導致手動打字幾乎不可能打出「Tab 分隔」的格式。這裡攔截 Tab 鍵，改成在游標位置插入
+  // 真正的 Tab 字元，體驗跟 Excel 儲存格按 Tab 跳下一格一樣。
+  document.getElementById('p-batch-text').addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    var start = this.selectionStart;
+    var end = this.selectionEnd;
+    this.value = this.value.substring(0, start) + '\t' + this.value.substring(end);
+    this.selectionStart = this.selectionEnd = start + 1;
+  });
+
+  document.getElementById('p-batch-fill-example-btn').addEventListener('click', function () {
+    document.getElementById('p-batch-text').value = document.getElementById('batch-example-text').textContent;
+  });
+
+  document.getElementById('p-batch-btn').addEventListener('click', function () {
+    var btn = this;
+    var text = document.getElementById('p-batch-text').value;
+    var resultEl = document.getElementById('p-batch-result');
+    resultEl.textContent = '';
+
+    withBusy(btn, callApiOrQueue('checkinPersonnelBatch', {
+      token: currentSession.token,
+      case_id: currentSession.case.case_id,
+      text: text
+    })).then(function (res) {
+      if (res.queued) {
+        resultEl.textContent = '目前離線，已記錄這批報到，恢復連線後會自動送出。';
+        document.getElementById('p-batch-text').value = '';
+        return;
+      }
+      if (!res.ok) { resultEl.textContent = res.error || '批次報到失敗'; return; }
+      var msg = '成功新增 ' + res.created_count + ' 人';
+      if (res.skipped && res.skipped.length > 0) {
+        msg += '，跳過 ' + res.skipped.length + ' 行（' +
+          res.skipped.map(function (s) { return '第' + s.line + '行：' + s.reason; }).join('；') + '）';
+      }
+      resultEl.textContent = msg;
+      document.getElementById('p-batch-text').value = '';
+      loadPersonnel();
+    }).catch(function (e) {
+      resultEl.textContent = '連線失敗：' + e.message;
+    });
+  });
+
+  // ---- ICS 看板 ----
+
+  var icsSites = [];
+  var icsTasks = [];
+  var icsPersonnel = [];
+  var caseOverdueHours = 4;
+
+  function loadIcsBoard() {
+    var errEl = document.getElementById('ics-error');
+    errEl.textContent = '';
+    Promise.all([
+      callApi('getIcsBoard', { token: currentSession.token, case_id: currentSession.case.case_id }),
+      callApi('getPersonnel', { token: currentSession.token, case_id: currentSession.case.case_id }),
+      callApi('getCaseSettings', { token: currentSession.token, case_id: currentSession.case.case_id })
+    ]).then(function (results) {
+      var boardRes = results[0];
+      var personnelRes = results[1];
+      var settingsRes = results[2];
+      if (!boardRes.ok) { errEl.textContent = boardRes.error || '載入 ICS 看板失敗'; return; }
+      icsSites = boardRes.sites;
+      icsTasks = boardRes.tasks;
+      icsPersonnel = personnelRes.ok ? personnelRes.personnel : [];
+      if (settingsRes.ok) caseOverdueHours = settingsRes.settings.overdue_hours;
+      renderIcsBoard();
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  function renderIcsBoard() {
+    document.getElementById('ics-new-site-form').hidden = !isEffectiveAdmin();
+    document.getElementById('maps-upload-form').hidden = !isEffectiveAdmin();
+
+    var container = document.getElementById('ics-sites-container');
+    container.innerHTML = '';
+
+    var allTopSites = icsSites.filter(function (s) { return !s.parent_id; });
+    if (allTopSites.length === 0) {
+      container.appendChild(emptyHint_('還沒有建立任何場地。'));
+      return;
+    }
+
+    var showClosed = document.getElementById('show-closed-sites-toggle').checked;
+
+    // 已撤收的場地預設隱藏，避免現場操作時被歷史紀錄（尤其誤點造成的重複場地）洗版；
+    // 主場地就算已撤收，只要底下還有開設中的子場地，還是要顯示，維持結構完整。
+    var visibleTopSites = allTopSites.filter(function (site) {
+      if (showClosed) return true;
+      if (site.status === '開設') return true;
+      var children = icsSites.filter(function (s) { return s.parent_id === site.site_id; });
+      return children.some(function (c) { return c.status === '開設'; });
+    });
+
+    if (visibleTopSites.length === 0) {
+      container.appendChild(emptyHint_('所有場地都已撤收。勾選上面「顯示已撤收的場地」可以看到歷史紀錄。'));
+      return;
+    }
+
+    // 桌機（寬螢幕）才用「欄數＝主場地數量」的網格；手機版維持原本單欄堆疊，
+    // 不能直接設 inline 的 grid-template-columns，不然會蓋掉手機版排版。
+    if (window.matchMedia('(min-width: 900px)').matches) {
+      container.style.gridTemplateColumns = 'repeat(' + visibleTopSites.length + ', minmax(280px, 1fr))';
+    } else {
+      container.style.gridTemplateColumns = '';
+    }
+
+    visibleTopSites.forEach(function (site) {
+      // 主場地跟它的子場地包在同一個 group 容器裡，寬螢幕排成網格時才不會被拆散到不同欄
+      var group = document.createElement('div');
+      group.className = 'site-group';
+      group.appendChild(renderSiteCard(site, false));
+      icsSites.filter(function (s) {
+        return s.parent_id === site.site_id && (showClosed || s.status === '開設');
+      }).forEach(function (child) {
+        group.appendChild(renderSiteCard(child, true));
+      });
+      container.appendChild(group);
+    });
+  }
+
+  function emptyHint_(text) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    var p = document.createElement('p');
+    p.className = 'hint-text';
+    p.textContent = text;
+    card.appendChild(p);
+    return card;
+  }
+
+  document.getElementById('show-closed-sites-toggle').addEventListener('change', renderIcsBoard);
+
+  function renderSiteCard(site, isChild) {
+    var isAdmin = isEffectiveAdmin();
+    var isOpen = site.status === '開設';
+
+    var card = document.createElement('div');
+    card.className = 'card site-card' + (isChild ? ' child' : '');
+
+    var header = document.createElement('div');
+    header.className = 'site-card-header';
+    var h3 = document.createElement('h3');
+    h3.appendChild(document.createTextNode(site.name + '　'));
+    var badge = document.createElement('span');
+    badge.className = 'badge ' + (isOpen ? 'badge-open' : 'badge-closed');
+    badge.textContent = site.status;
+    h3.appendChild(badge);
+    header.appendChild(h3);
+    card.appendChild(header);
+
+    var meta = document.createElement('p');
+    meta.className = 'hint-text';
+    meta.textContent = '開設於 ' + formatTime(site.opened_at) + (site.closed_at ? '・撤收於 ' + formatTime(site.closed_at) : '');
+    card.appendChild(meta);
+
+    if (isAdmin && isOpen) {
+      var actions = document.createElement('div');
+      actions.className = 'site-actions';
+
+      var closeBtn = document.createElement('button');
+      closeBtn.className = 'btn-secondary';
+      closeBtn.textContent = '撤收此場地';
+      closeBtn.addEventListener('click', function () { closeSite(site.site_id, closeBtn); });
+      actions.appendChild(closeBtn);
+
+      if (!isChild) {
+        var addChildBtn = document.createElement('button');
+        addChildBtn.className = 'btn-secondary';
+        addChildBtn.textContent = '+ 子場地';
+        addChildBtn.addEventListener('click', function () { toggleAddChildSiteForm(site.site_id); });
+        actions.appendChild(addChildBtn);
+      }
+
+      var addTaskBtn = document.createElement('button');
+      addTaskBtn.className = 'btn-secondary';
+      addTaskBtn.textContent = '+ 新增任務';
+      addTaskBtn.addEventListener('click', function () { toggleNewTaskForm(site.site_id); });
+      actions.appendChild(addTaskBtn);
+
+      card.appendChild(actions);
+    }
+
+    if (!isChild) {
+      var childForm = document.createElement('div');
+      childForm.id = 'child-site-form-' + site.site_id;
+      childForm.className = 'inline-form';
+      childForm.hidden = true;
+      card.appendChild(childForm);
+    }
+
+    var taskForm = document.createElement('div');
+    taskForm.id = 'new-task-form-' + site.site_id;
+    taskForm.className = 'inline-form';
+    taskForm.hidden = true;
+    card.appendChild(taskForm);
+
+    var tasksForSite = icsTasks.filter(function (t) { return t.site_id === site.site_id; });
+    tasksForSite.forEach(function (t) { card.appendChild(renderTaskCard(t)); });
+
+    return card;
+  }
+
+  function isTaskOverdue(task) {
+    if (currentSession.case.category !== '山域') return false;
+    if (task.status !== '派遣中') return false;
+    var hours = (Date.now() - new Date(task.dispatched_at).getTime()) / 3600000;
+    return hours > caseOverdueHours;
+  }
+
+  function renderTaskCard(task) {
+    var isAdmin = isEffectiveAdmin();
+    var isActive = task.status === '派遣中';
+    var overdue = isTaskOverdue(task);
+
+    var card = document.createElement('div');
+    card.className = 'task-card' + (overdue ? ' overdue' : '');
+
+    var header = document.createElement('div');
+    header.className = 'task-header';
+    var title = document.createElement('strong');
+    title.textContent = '[' + task.type + '] ' + task.content;
+    header.appendChild(title);
+
+    var badgeClass = isActive ? 'badge-task-active' : (task.status === '完成' ? 'badge-task-done' : 'badge-task-abort');
+    var badge = document.createElement('span');
+    badge.className = 'badge ' + badgeClass;
+    badge.textContent = isActive ? '派遣中（持續作業）' : task.status;
+    header.appendChild(badge);
+
+    if (overdue) {
+      var overdueBadge = document.createElement('span');
+      overdueBadge.className = 'badge badge-overdue';
+      overdueBadge.textContent = '逾時（超過 ' + caseOverdueHours + ' 小時）';
+      header.appendChild(overdueBadge);
+    }
+
+    card.appendChild(header);
+
+    var meta = document.createElement('p');
+    meta.className = 'hint-text';
+    meta.textContent = (task.leader_name ? '帶隊官：' + task.leader_name + '　' : '') +
+      '派遣時間：' + formatTime(task.dispatched_at) +
+      (task.ended_at ? '　結束時間：' + formatTime(task.ended_at) : '');
+    card.appendChild(meta);
+
+    var memberTags = document.createElement('div');
+    memberTags.className = 'member-tags';
+    var currentMembers = task.members.filter(function (m) { return !m.left_at; });
+    if (currentMembers.length === 0) {
+      var noneSpan = document.createElement('span');
+      noneSpan.className = 'hint-text';
+      noneSpan.textContent = '目前沒有派遣人員';
+      memberTags.appendChild(noneSpan);
+    } else {
+      currentMembers.forEach(function (m) {
+        var tag = document.createElement('span');
+        tag.className = 'member-tag';
+        tag.textContent = m.name;
+        memberTags.appendChild(tag);
+      });
+    }
+    card.appendChild(memberTags);
+
+    if (isAdmin && isActive) {
+      var actions = document.createElement('div');
+      actions.className = 'task-actions';
+
+      var manageBtn = document.createElement('button');
+      manageBtn.className = 'btn-secondary';
+      manageBtn.textContent = '增減人員';
+      manageBtn.addEventListener('click', function () { toggleManageMembersForm(task); });
+      actions.appendChild(manageBtn);
+
+      var doneBtn = document.createElement('button');
+      doneBtn.className = 'btn-secondary';
+      doneBtn.textContent = '標記完成';
+      doneBtn.addEventListener('click', function () { endTask(task.task_id, '完成', doneBtn); });
+      actions.appendChild(doneBtn);
+
+      var abortBtn = document.createElement('button');
+      abortBtn.className = 'btn-secondary';
+      abortBtn.textContent = '中止';
+      abortBtn.addEventListener('click', function () { endTask(task.task_id, '中止', abortBtn); });
+      actions.appendChild(abortBtn);
+
+      card.appendChild(actions);
+
+      var manageForm = document.createElement('div');
+      manageForm.id = 'manage-members-form-' + task.task_id;
+      manageForm.className = 'inline-form';
+      manageForm.hidden = true;
+      card.appendChild(manageForm);
+    }
+
+    return card;
+  }
+
+  function buildPersonnelCheckboxList(container, selectedIds) {
+    container.innerHTML = '';
+    if (icsPersonnel.length === 0) {
+      container.innerHTML = '<p class="hint-text">還沒有人員報到，請先到「人員管制」分頁報到。</p>';
+      return;
+    }
+    icsPersonnel.forEach(function (p) {
+      var label = document.createElement('label');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = p.person_id;
+      cb.checked = selectedIds.indexOf(p.person_id) !== -1;
+      var span = document.createElement('span');
+      span.textContent = p.name + '（' + (p.unit || '無單位') + '・' + p.status + '）';
+      label.appendChild(cb);
+      label.appendChild(span);
+      container.appendChild(label);
+    });
+  }
+
+  function getCheckedValues(container) {
+    return Array.prototype.map.call(
+      container.querySelectorAll('input[type="checkbox"]:checked'),
+      function (cb) { return cb.value; }
+    );
+  }
+
+  function confirmConflicts(conflicts) {
+    var lines = conflicts.map(function (c) { return c.name + ' 目前在「' + c.current_task_content + '」任務中'; });
+    return window.confirm(lines.join('\n') + '\n\n是否要把這些人從原任務調出，改派到這裡？');
+  }
+
+  function toggleAddChildSiteForm(parentId) {
+    var container = document.getElementById('child-site-form-' + parentId);
+    if (!container) return;
+    if (!container.hidden) { container.hidden = true; container.innerHTML = ''; return; }
+    container.hidden = false;
+    container.innerHTML = '';
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = '子場地名稱';
+
+    var errP = document.createElement('p');
+    errP.className = 'error-text';
+
+    var btn = document.createElement('button');
+    btn.textContent = '新增子場地';
+    btn.addEventListener('click', function () {
+      var name = input.value.trim();
+      if (!name) { errP.textContent = '請輸入場地名稱'; return; }
+      withBusy(btn, callApi('createSite', {
+        token: currentSession.token, case_id: currentSession.case.case_id, name: name, parent_id: parentId
+      })).then(function (res) {
+        if (!res.ok) { errP.textContent = res.error || '新增失敗'; return; }
+        loadIcsBoard();
+      }).catch(function (e) { errP.textContent = '連線失敗：' + e.message; });
+    });
+
+    container.appendChild(input);
+    container.appendChild(btn);
+    container.appendChild(errP);
+  }
+
+  function toggleNewTaskForm(siteId) {
+    var container = document.getElementById('new-task-form-' + siteId);
+    if (!container) return;
+    if (!container.hidden) { container.hidden = true; container.innerHTML = ''; return; }
+    container.hidden = false;
+    container.innerHTML = '';
+
+    var h4 = document.createElement('h4');
+    h4.textContent = '新增任務';
+    h4.style.margin = '0 0 8px';
+    container.appendChild(h4);
+
+    var typeLabel = document.createElement('label'); typeLabel.textContent = '任務類型';
+    var typeSelect = document.createElement('select');
+    ['搜索', '救援'].forEach(function (t) {
+      var opt = document.createElement('option'); opt.value = t; opt.textContent = t;
+      typeSelect.appendChild(opt);
+    });
+    container.appendChild(typeLabel);
+    container.appendChild(typeSelect);
+
+    var contentLabel = document.createElement('label'); contentLabel.textContent = '任務內容';
+    var contentInput = document.createElement('input'); contentInput.type = 'text';
+    contentInput.placeholder = '例如：東側稜線搜索';
+    container.appendChild(contentLabel);
+    container.appendChild(contentInput);
+
+    var leaderLabel = document.createElement('label'); leaderLabel.textContent = '帶隊官';
+    var leaderSelect = document.createElement('select');
+    var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '（不指定）';
+    leaderSelect.appendChild(emptyOpt);
+    icsPersonnel.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p.person_id;
+      opt.textContent = p.name + '（' + (p.unit || '無單位') + '・' + p.status + '）';
+      leaderSelect.appendChild(opt);
+    });
+    container.appendChild(leaderLabel);
+    container.appendChild(leaderSelect);
+
+    var membersLabel = document.createElement('label'); membersLabel.textContent = '派遣人員';
+    container.appendChild(membersLabel);
+    var checkboxList = document.createElement('div'); checkboxList.className = 'checkbox-list';
+    buildPersonnelCheckboxList(checkboxList, []);
+    container.appendChild(checkboxList);
+
+    var errP = document.createElement('p'); errP.className = 'error-text';
+
+    var submitBtn = document.createElement('button');
+    submitBtn.textContent = '建立任務';
+    submitBtn.addEventListener('click', function () {
+      doCreateTask(siteId, typeSelect.value, contentInput.value.trim(), leaderSelect.value, checkboxList, errP, false, submitBtn);
+    });
+    container.appendChild(submitBtn);
+    container.appendChild(errP);
+  }
+
+  function doCreateTask(siteId, type, content, leaderId, checkboxList, errEl, force, btn) {
+    errEl.textContent = '';
+    if (!content) { errEl.textContent = '請輸入任務內容'; return; }
+    var memberIds = getCheckedValues(checkboxList);
+
+    withBusy(btn, callApi('createTask', {
+      token: currentSession.token,
+      case_id: currentSession.case.case_id,
+      site_id: siteId,
+      type: type,
+      content: content,
+      leader_id: leaderId,
+      member_ids: memberIds,
+      force: !!force
+    })).then(function (res) {
+      if (!res.ok) {
+        if (res.need_confirm) {
+          if (confirmConflicts(res.conflicts)) {
+            doCreateTask(siteId, type, content, leaderId, checkboxList, errEl, true, btn);
+          }
+          return;
+        }
+        errEl.textContent = res.error || '建立任務失敗';
+        return;
+      }
+      loadIcsBoard();
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  function closeSite(siteId, btn) {
+    if (!window.confirm('確定要撤收這個場地嗎？')) return;
+    var errEl = document.getElementById('ics-error');
+    errEl.textContent = '';
+    withBusy(btn, callApiOrQueue('closeSite', { token: currentSession.token, case_id: currentSession.case.case_id, site_id: siteId }))
+      .then(function (res) {
+        if (res.queued) { errEl.textContent = '目前離線，已記錄撤收動作，恢復連線後會自動送出。'; return; }
+        if (!res.ok) { errEl.textContent = res.error || '撤收失敗'; return; }
+        loadIcsBoard();
+      }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  function endTask(taskId, status, btn) {
+    if (!window.confirm('確定要把這個任務標記為「' + status + '」嗎？標記後底下的派遣人員都會一併結束。')) return;
+    var errEl = document.getElementById('ics-error');
+    errEl.textContent = '';
+    withBusy(btn, callApiOrQueue('endTask', {
+      token: currentSession.token, case_id: currentSession.case.case_id, task_id: taskId, status: status
+    })).then(function (res) {
+      if (res.queued) { errEl.textContent = '目前離線，已記錄這個結束動作，恢復連線後會自動送出。'; return; }
+      if (!res.ok) { errEl.textContent = res.error || '更新失敗'; return; }
+      loadIcsBoard();
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  function toggleManageMembersForm(task) {
+    var container = document.getElementById('manage-members-form-' + task.task_id);
+    if (!container) return;
+    if (!container.hidden) { container.hidden = true; container.innerHTML = ''; return; }
+    container.hidden = false;
+    container.innerHTML = '';
+
+    var hint = document.createElement('p');
+    hint.className = 'hint-text';
+    hint.textContent = '勾選＝在任務中，取消勾選＝從這個任務移除；按儲存後才會生效。';
+    container.appendChild(hint);
+
+    var checkboxList = document.createElement('div');
+    checkboxList.className = 'checkbox-list';
+    var currentIds = task.members.filter(function (m) { return !m.left_at; }).map(function (m) { return m.person_id; });
+    buildPersonnelCheckboxList(checkboxList, currentIds);
+    container.appendChild(checkboxList);
+
+    var errP = document.createElement('p');
+    errP.className = 'error-text';
+
+    var saveBtn = document.createElement('button');
+    saveBtn.textContent = '儲存';
+    saveBtn.addEventListener('click', function () {
+      doUpdateTaskMembers(task, currentIds, checkboxList, errP, false, saveBtn);
+    });
+    container.appendChild(saveBtn);
+    container.appendChild(errP);
+  }
+
+  function doUpdateTaskMembers(task, originalIds, checkboxList, errEl, force, btn) {
+    errEl.textContent = '';
+    var newIds = getCheckedValues(checkboxList);
+    var add = newIds.filter(function (id) { return originalIds.indexOf(id) === -1; });
+    var remove = originalIds.filter(function (id) { return newIds.indexOf(id) === -1; });
+
+    if (add.length === 0 && remove.length === 0) {
+      document.getElementById('manage-members-form-' + task.task_id).hidden = true;
+      return;
+    }
+
+    withBusy(btn, callApi('updateTaskMembers', {
+      token: currentSession.token,
+      case_id: currentSession.case.case_id,
+      task_id: task.task_id,
+      add: add,
+      remove: remove,
+      force: !!force
+    })).then(function (res) {
+      if (!res.ok) {
+        if (res.need_confirm) {
+          if (confirmConflicts(res.conflicts)) {
+            doUpdateTaskMembers(task, originalIds, checkboxList, errEl, true, btn);
+          }
+          return;
+        }
+        errEl.textContent = res.error || '更新失敗';
+        return;
+      }
+      loadIcsBoard();
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  document.getElementById('site-create-btn').addEventListener('click', function () {
+    var btn = this;
+    var input = document.getElementById('site-name-input');
+    var name = input.value.trim();
+    var errEl = document.getElementById('ics-error');
+    errEl.textContent = '';
+    if (!name) { errEl.textContent = '請輸入場地名稱'; return; }
+
+    withBusy(btn, callApi('createSite', {
+      token: currentSession.token, case_id: currentSession.case.case_id, name: name, parent_id: ''
+    })).then(function (res) {
+      if (!res.ok) { errEl.textContent = res.error || '新增失敗'; return; }
+      input.value = '';
+      loadIcsBoard();
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  });
+
+  // ---- 工作記事 ----
+
+  function loadWorkLog() {
+    var errEl = document.getElementById('log-error');
+    errEl.textContent = '';
+    callApi('getWorkLog', { token: currentSession.token, case_id: currentSession.case.case_id })
+      .then(function (res) {
+        if (!res.ok) { errEl.textContent = res.error || '載入工作記事失敗'; return; }
+        renderWorkLog(res.entries);
+      }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  function renderWorkLog(entries) {
+    var container = document.getElementById('log-timeline');
+    container.innerHTML = '';
+
+    if (entries.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'card';
+      empty.innerHTML = '<p class="hint-text">目前沒有工作記事，建立場地或派遣任務後會自動出現在這裡。</p>';
+      container.appendChild(empty);
+      return;
+    }
+
+    entries.forEach(function (entry) {
+      var card = document.createElement('div');
+      card.className = 'card log-entry';
+
+      var top = document.createElement('div');
+      top.className = 'site-card-header';
+
+      var badgeInfo = logBadgeInfo(entry.type);
+      var badge = document.createElement('span');
+      badge.className = 'badge ' + badgeInfo.cls;
+      badge.textContent = badgeInfo.text;
+      top.appendChild(badge);
+
+      var time = document.createElement('span');
+      time.className = 'hint-text';
+      time.textContent = formatTime(entry.at);
+      top.appendChild(time);
+
+      card.appendChild(top);
+
+      var text = document.createElement('p');
+      text.style.margin = '8px 0 0';
+      text.textContent = logEntryText(entry);
+      card.appendChild(text);
+
+      container.appendChild(card);
+    });
+  }
+
+  function logBadgeInfo(type) {
+    if (type === 'site_open') return { cls: 'badge-open', text: '場地開設' };
+    if (type === 'site_close') return { cls: 'badge-closed', text: '場地撤收' };
+    if (type === 'task_start') return { cls: 'badge-task-active', text: '任務派遣' };
+    if (type === 'task_end') return { cls: 'badge-task-done', text: '任務結束' };
+    return { cls: 'badge-closed', text: type };
+  }
+
+  function logEntryText(entry) {
+    if (entry.type === 'site_open' || entry.type === 'site_close') {
+      return '工作場地：' + entry.site_name;
+    }
+    var members = entry.members && entry.members.length > 0 ? entry.members.join('、') : '（無派遣人員）';
+    var base = '工作場地：' + entry.site_name + '　任務：[' + entry.task_type + '] ' + entry.task_content;
+    if (entry.type === 'task_end') base += '（' + entry.status + '）';
+    return base + '　執行人員：' + members;
+  }
+
+  // ---- 報表看板 ----
+
+  function todayDateStr() {
+    var now = new Date();
+    var y = now.getFullYear();
+    var m = String(now.getMonth() + 1).padStart(2, '0');
+    var d = String(now.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
+  }
+
+  document.getElementById('report-mode').addEventListener('change', function () {
+    var isDay = this.value === 'day';
+    document.getElementById('report-date-field').hidden = !isDay;
+    if (isDay && !document.getElementById('report-date').value) {
+      document.getElementById('report-date').value = todayDateStr();
+    }
+  });
+
+  document.getElementById('report-refresh-btn').addEventListener('click', function () { loadReport(this); });
+
+  function loadReport(btn) {
+    var mode = document.getElementById('report-mode').value;
+    var dateStr = document.getElementById('report-date').value;
+    var groupBy = document.getElementById('report-groupby').value;
+    var errEl = document.getElementById('report-error');
+    errEl.textContent = '';
+
+    if (mode === 'day' && !dateStr) {
+      dateStr = todayDateStr();
+      document.getElementById('report-date').value = dateStr;
+    }
+
+    withBusy(btn, Promise.all([
+      callApi('getReport', {
+        token: currentSession.token, case_id: currentSession.case.case_id,
+        mode: mode, date: dateStr, group_by: groupBy
+      }),
+      callApi('getIcsBoard', { token: currentSession.token, case_id: currentSession.case.case_id })
+    ])).then(function (results) {
+      var reportRes = results[0];
+      var boardRes = results[1];
+      if (!reportRes.ok) { errEl.textContent = reportRes.error || '載入報表失敗'; return; }
+      renderReportTable(reportRes);
+      if (boardRes.ok) {
+        renderGantt(boardRes.sites, boardRes.tasks, mode, dateStr);
+      }
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  function renderReportTable(res) {
+    var headerMap = { unit: '單位', sub_unit: '子單位', site: '工作場地' };
+    document.getElementById('report-group-header').textContent = headerMap[res.group_by] || '分組';
+
+    var tbody = document.getElementById('report-tbody');
+    tbody.innerHTML = '';
+
+    if (res.rows.length === 0) {
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.colSpan = 5;
+      td.className = 'hint-text';
+      td.textContent = '目前沒有資料';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+
+    res.rows.forEach(function (r) {
+      var tr = document.createElement('tr');
+      [r.group, r.person_count, r.visit_count, r.hours, r.checkin_count === null ? '－' : r.checkin_count]
+        .forEach(function (v) {
+          var td = document.createElement('td');
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderGantt(sites, tasks, mode, dateStr) {
+    var container = document.getElementById('gantt-container');
+    container.innerHTML = '';
+
+    var now = new Date();
+    var rangeStart, rangeEnd;
+
+    if (mode === 'day') {
+      rangeStart = new Date(dateStr + 'T00:00:00+08:00');
+      rangeEnd = new Date(rangeStart.getTime() + 24 * 3600 * 1000);
+    } else {
+      var allTimes = [];
+      tasks.forEach(function (t) {
+        allTimes.push(new Date(t.dispatched_at));
+        allTimes.push(t.ended_at ? new Date(t.ended_at) : now);
+      });
+      if (allTimes.length === 0) {
+        container.innerHTML = '<p class="hint-text">還沒有任務資料可以畫甘特圖。</p>';
+        return;
+      }
+      rangeStart = new Date(Math.min.apply(null, allTimes));
+      rangeEnd = new Date(Math.max.apply(null, allTimes.concat([now])));
+      if (rangeEnd - rangeStart < 3600000) rangeEnd = new Date(rangeStart.getTime() + 3600000);
+    }
+
+    var totalMs = rangeEnd - rangeStart;
+
+    var header = document.createElement('p');
+    header.className = 'hint-text';
+    header.textContent = '範圍：' + formatDateTaipei(rangeStart) + '　～　' + formatDateTaipei(rangeEnd);
+    container.appendChild(header);
+
+    var siteNameById = {};
+    sites.forEach(function (s) { siteNameById[s.site_id] = s.name; });
+
+    var tasksBySite = {};
+    tasks.forEach(function (t) {
+      var tStart = new Date(t.dispatched_at);
+      var tEnd = t.ended_at ? new Date(t.ended_at) : now;
+      if (tEnd < rangeStart || tStart > rangeEnd) return;
+      if (!tasksBySite[t.site_id]) tasksBySite[t.site_id] = [];
+      tasksBySite[t.site_id].push(t);
+    });
+
+    var siteIds = Object.keys(tasksBySite);
+    if (siteIds.length === 0) {
+      var noneP = document.createElement('p');
+      noneP.className = 'hint-text';
+      noneP.textContent = '這個範圍內沒有任務資料。';
+      container.appendChild(noneP);
+      return;
+    }
+
+    siteIds.forEach(function (siteId) {
+      var block = document.createElement('div');
+      block.className = 'gantt-site-block';
+
+      var title = document.createElement('div');
+      title.className = 'gantt-site-title';
+      title.textContent = siteNameById[siteId] || '（未知場地）';
+      block.appendChild(title);
+
+      tasksBySite[siteId].forEach(function (t) {
+        var tStart = new Date(t.dispatched_at);
+        var tEnd = t.ended_at ? new Date(t.ended_at) : now;
+        var clipStart = tStart < rangeStart ? rangeStart : tStart;
+        var clipEnd = tEnd > rangeEnd ? rangeEnd : tEnd;
+
+        var leftPct = ((clipStart - rangeStart) / totalMs) * 100;
+        var widthPct = Math.max(((clipEnd - clipStart) / totalMs) * 100, 0.8);
+
+        var row = document.createElement('div');
+        row.className = 'gantt-row';
+
+        var label = document.createElement('div');
+        label.className = 'gantt-label';
+        var memberNames = t.members.map(function (m) { return m.name; }).join('、');
+        label.textContent = '[' + t.type + '] ' + t.content + (memberNames ? '（' + memberNames + '）' : '');
+        row.appendChild(label);
+
+        var track = document.createElement('div');
+        track.className = 'gantt-track';
+        var bar = document.createElement('div');
+        bar.className = 'gantt-bar' + (t.ended_at ? '' : ' ongoing');
+        bar.style.left = leftPct + '%';
+        bar.style.width = widthPct + '%';
+        bar.title = formatTime(t.dispatched_at) + ' ~ ' + (t.ended_at ? formatTime(t.ended_at) : '持續中');
+        track.appendChild(bar);
+        row.appendChild(track);
+
+        block.appendChild(row);
+      });
+
+      container.appendChild(block);
+    });
+  }
+
+  document.getElementById('report-print-btn').addEventListener('click', function () { window.print(); });
+  document.getElementById('log-print-btn').addEventListener('click', function () { window.print(); });
+
+  // ---- 離線佇列 ----
+  // 報到、批次報到、勾選檢核表、結束任務、撤收場地 這幾個動作，斷線時不會直接失敗，
+  // 而是先存進 localStorage 的佇列，畫面顯示「未同步 N 筆」，恢復連線後自動依序補送。
+  // 「派遣任務」「增減人員」「建立場地」等需要即時判斷重複派遣衝突的動作，離線時無法排入佇列
+  // （沒有網路就沒辦法知道現在誰在哪個任務，硬送出去可能造成錯誤的雙重派遣），這是刻意的安全考量。
+
+  var OFFLINE_QUEUE_KEY = 'gcb_offline_queue';
+  var OFFLINE_QUEUEABLE = ['checkinPersonnel', 'checkinPersonnelBatch', 'toggleChecklistItem', 'endTask', 'closeSite'];
+
+  function getOfflineQueue() {
+    try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); }
+    catch (e) { return []; }
+  }
+  function setOfflineQueue(q) { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); }
+
+  function updateOfflineIndicator() {
+    var n = getOfflineQueue().length;
+    var el = document.getElementById('offline-indicator');
+    if (!el) return;
+    if (n > 0) {
+      el.hidden = false;
+      el.textContent = '未同步 ' + n + ' 筆，恢復連線後會自動送出';
+    } else {
+      el.hidden = true;
+    }
+  }
+
+  /**
+   * 跟 callApi 一樣送出請求；如果是網路本身的問題（fetch 失敗，不是伺服器回 ok:false 那種業務錯誤），
+   * 而且這個 action 允許離線佇列，就把它存起來稍後補送，並回傳 {ok:true, queued:true} 讓呼叫端知道
+   * 「已經記錄了，只是還沒真的送到伺服器」。不可離線佇列的 action，網路錯誤照樣往外丟。
+   */
+  function callApiOrQueue(action, payload) {
+    return callApi(action, payload).catch(function (err) {
+      if (OFFLINE_QUEUEABLE.indexOf(action) === -1) throw err;
+      var queue = getOfflineQueue();
+      queue.push({ action: action, payload: payload, queued_at: new Date().toISOString() });
+      setOfflineQueue(queue);
+      updateOfflineIndicator();
+      return { ok: true, queued: true };
+    });
+  }
+
+  var flushingOfflineQueue = false;
+  function flushOfflineQueue() {
+    if (flushingOfflineQueue) return;
+    var queue = getOfflineQueue();
+    if (queue.length === 0) return;
+    if (!currentSession) return; // 還沒登入案件，不知道要補送到哪個 token，先不送
+
+    flushingOfflineQueue = true;
+    var item = queue[0];
+    callApi(item.action, item.payload).then(function () {
+      var q = getOfflineQueue();
+      q.shift();
+      setOfflineQueue(q);
+      updateOfflineIndicator();
+      flushingOfflineQueue = false;
+      if (q.length > 0) flushOfflineQueue();
+      refreshCurrentCasePanel();
+    }).catch(function () {
+      flushingOfflineQueue = false; // 還是連不上，停手，等下一次計時器或 online 事件再試
+    });
+  }
+
+  function refreshCurrentCasePanel() {
+    if (!currentSession) return;
+    var activeBtn = document.querySelector('.case-tabs .tab-btn.active');
+    var target = activeBtn ? activeBtn.getAttribute('data-case-tab') : 'checklist';
+    if (target === 'checklist') loadChecklist();
+    if (target === 'personnel') loadPersonnel();
+    if (target === 'ics') { loadIcsBoard(); loadMaps(); }
+    if (target === 'log') loadWorkLog();
+    if (target === 'report') loadReport();
+  }
+
+  window.addEventListener('online', flushOfflineQueue);
+  setInterval(flushOfflineQueue, 20000);
+
+  // ---- 圖資 ----
+
+  function loadMaps() {
+    populateMapSiteSelect();
+    callApi('getMaps', { token: currentSession.token, case_id: currentSession.case.case_id })
+      .then(function (res) {
+        if (!res.ok) return;
+        renderMaps(res.maps);
+      });
+  }
+
+  function populateMapSiteSelect() {
+    var select = document.getElementById('map-site-select');
+    var current = select.value;
+    select.innerHTML = '<option value="">（全案圖資，不指定場地）</option>';
+    icsSites.forEach(function (s) {
+      var opt = document.createElement('option');
+      opt.value = s.site_id;
+      opt.textContent = s.name;
+      select.appendChild(opt);
+    });
+    select.value = current;
+  }
+
+  function renderMaps(maps) {
+    var container = document.getElementById('maps-list');
+    container.innerHTML = '';
+    if (maps.length === 0) {
+      container.innerHTML = '<p class="hint-text">還沒有上傳圖資。</p>';
+      return;
+    }
+    maps.forEach(function (m) {
+      var row = document.createElement('div');
+      row.className = 'map-item';
+
+      var label = document.createElement('span');
+      label.textContent = m.name + '（' + formatTime(m.created_at) + '）';
+      row.appendChild(label);
+
+      var viewBtn = document.createElement('button');
+      viewBtn.className = 'btn-secondary';
+      viewBtn.textContent = '檢視';
+      viewBtn.addEventListener('click', function () { viewMap(m.map_id, m.name, viewBtn); });
+      row.appendChild(viewBtn);
+
+      container.appendChild(row);
+    });
+  }
+
+  function viewMap(mapId, name, btn) {
+    var viewer = document.getElementById('map-viewer');
+    var img = document.getElementById('map-viewer-img');
+    var title = document.getElementById('map-viewer-title');
+    title.textContent = name + '（載入中…）';
+    img.removeAttribute('src');
+    viewer.hidden = false;
+    viewer.scrollIntoView({ behavior: 'smooth' });
+
+    withBusy(btn, callApi('getMapImage', { token: currentSession.token, case_id: currentSession.case.case_id, map_id: mapId }))
+      .then(function (res) {
+        if (!res.ok) { title.textContent = '載入失敗：' + (res.error || ''); return; }
+        title.textContent = res.name;
+        img.src = 'data:' + res.mime_type + ';base64,' + res.image_base64;
+      }).catch(function (e) { title.textContent = '連線失敗：' + e.message; });
+  }
+
+  document.getElementById('map-viewer-close-btn').addEventListener('click', function () {
+    document.getElementById('map-viewer').hidden = true;
+  });
+
+  // 把選好的圖片壓縮成長邊 maxSide 以內的 JPEG，回傳 base64（不含 data:...;base64, 前綴）。
+  function compressImageToBase64(file, maxSide, quality) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        var img = new Image();
+        img.onload = function () {
+          var scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+          var canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          var dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl.split(',')[1]);
+        };
+        img.onerror = function () { reject(new Error('圖片載入失敗')); };
+        img.src = e.target.result;
+      };
+      reader.onerror = function () { reject(new Error('檔案讀取失敗')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  document.getElementById('map-upload-btn').addEventListener('click', function () {
+    var btn = this;
+    var fileInput = document.getElementById('map-file-input');
+    var name = document.getElementById('map-name-input').value.trim();
+    var siteId = document.getElementById('map-site-select').value;
+    var errEl = document.getElementById('map-upload-error');
+    errEl.textContent = '';
+
+    if (!fileInput.files || fileInput.files.length === 0) { errEl.textContent = '請選擇圖片檔案'; return; }
+    if (!name) { errEl.textContent = '請輸入圖資名稱'; return; }
+
+    errEl.textContent = '壓縮並上傳中…';
+    withBusy(btn, compressImageToBase64(fileInput.files[0], 1600, 0.85).then(function (base64) {
+      return callApi('uploadMap', {
+        token: currentSession.token, case_id: currentSession.case.case_id,
+        site_id: siteId, name: name, image_base64: base64, mime_type: 'image/jpeg'
+      });
+    })).then(function (res) {
+      if (!res.ok) { errEl.textContent = res.error || '上傳失敗'; return; }
+      errEl.textContent = '';
+      fileInput.value = '';
+      document.getElementById('map-name-input').value = '';
+      loadMaps();
+    }).catch(function (e) {
+      errEl.textContent = '上傳失敗：' + e.message;
+    });
+  });
+
+  // ---- 案件層級跑馬燈 ----
+
+  function loadCaseMarquee() {
+    callApi('getCaseSettings', { token: currentSession.token, case_id: currentSession.case.case_id })
+      .then(function (res) {
+        var bar = document.getElementById('case-marquee-bar');
+        var track = document.getElementById('case-marquee-track');
+        if (res.ok && res.settings.marquee_enabled && res.marquee.length > 0) {
+          track.textContent = res.marquee.map(function (m) { return m.content; }).join('　｜　');
+          bar.hidden = false;
+        } else {
+          bar.hidden = true;
+        }
+      }).catch(function () {});
+  }
+
+  // ---- 設定頁 ----
+
+  function loadSettings() {
+    var errEl = document.getElementById('settings-error');
+    errEl.textContent = '';
+    callApi('getCaseSettings', { token: currentSession.token, case_id: currentSession.case.case_id })
+      .then(function (res) {
+        if (!res.ok) { errEl.textContent = res.error || '載入設定失敗'; return; }
+        var s = res.settings;
+        document.getElementById('setting-view-code-enabled').checked = s.view_code_enabled;
+        document.getElementById('setting-admin-code-enabled').checked = s.admin_code_enabled;
+        document.getElementById('setting-case-view-enabled').checked = s.case_view_enabled;
+        document.getElementById('setting-marquee-enabled').checked = s.marquee_enabled;
+        document.getElementById('setting-name-mask-enabled').checked = s.name_mask_enabled;
+        document.getElementById('setting-overdue-hours').value = s.overdue_hours;
+
+        var preview = document.getElementById('case-marquee-preview');
+        if (res.marquee.length > 0) {
+          preview.textContent = res.marquee.map(function (m) { return m.content; }).join('　｜　');
+        } else {
+          preview.textContent = '（目前沒有啟用中的跑馬燈內容）';
+        }
+
+        var isAdmin = isEffectiveAdmin();
+        Array.prototype.forEach.call(document.querySelectorAll('#panel-settings input, #panel-settings button'), function (el) {
+          el.disabled = !isAdmin;
+        });
+      }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  document.getElementById('settings-save-btn').addEventListener('click', function () {
+    var btn = this;
+    var errEl = document.getElementById('settings-error');
+    var resultEl = document.getElementById('settings-save-result');
+    errEl.textContent = '';
+    resultEl.textContent = '';
+
+    var hours = Number(document.getElementById('setting-overdue-hours').value);
+    if (isNaN(hours) || hours <= 0) { errEl.textContent = '逾時警示時數請填大於 0 的數字'; return; }
+
+    var settings = {
+      view_code_enabled: document.getElementById('setting-view-code-enabled').checked,
+      admin_code_enabled: document.getElementById('setting-admin-code-enabled').checked,
+      case_view_enabled: document.getElementById('setting-case-view-enabled').checked,
+      marquee_enabled: document.getElementById('setting-marquee-enabled').checked,
+      name_mask_enabled: document.getElementById('setting-name-mask-enabled').checked,
+      overdue_hours: hours
+    };
+
+    withBusy(btn, callApi('updateCaseSettings', {
+      token: currentSession.token, case_id: currentSession.case.case_id, settings: settings
+    })).then(function (res) {
+      if (!res.ok) { errEl.textContent = res.error || '儲存失敗'; return; }
+      resultEl.textContent = '已儲存。';
+      caseOverdueHours = hours;
+      loadCaseMarquee();
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  });
+
+  init();
+</script>
+</body>
+</html>
