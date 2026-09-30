@@ -9,7 +9,7 @@
 var SHEET_SCHEMAS = {
   Cases: ['case_id', 'category', 'name', 'status', 'created_at', 'closed_at', 'view_hash', 'admin_hash', 'version'],
   Settings: ['case_id', 'key', 'value'],
-  Checklists: ['category', 'group', 'item', 'sort'],
+  Checklists: ['category', 'group', 'item', 'sort', 'link'],
   CaseChecklist: ['case_id', 'item', 'done', 'done_by', 'done_at'],
   Personnel: ['person_id', 'case_id', 'unit', 'sub_unit', 'name', 'specialty', 'checkin_zone', 'checkin_at', 'left_at'],
   Sites: ['site_id', 'case_id', 'parent_id', 'name', 'status', 'opened_at', 'closed_at'],
@@ -93,7 +93,8 @@ function devCreateTestCase() {
 /**
  * 測試用：在 Checklists 工作表塞入四個類別的範例檢核表範本，供 Phase 3 測試「建案時複製範本」
  * 與「勾選檢核表」的流程。這些只是範例文字，方便先跑通機制，正式內容請直接在 Checklists
- * 工作表修改（category、group、item、sort 四欄，group 固定用「裝備」「表單」「注意事項」三種）。
+ * 工作表修改（category、group、item、sort、link 五欄，group 固定用「裝備」「表單」「注意事項」三種；
+ * link 留空就好，要放超連結的項目才填，畫面上會把該項目文字變成可點擊的連結）。
  * 可重複執行，每次執行前會先清空 Checklists 既有資料再重新寫入，避免重複。
  */
 function devSeedChecklistTemplates() {
@@ -132,13 +133,16 @@ function devSeedChecklistTemplates() {
 
   var sheet = getSheet_('Checklists');
   var headers = SHEET_SCHEMAS.Checklists;
+  // rows 目前只寫了 category/group/item/sort 四欄，補上第五欄 link（範例先留空，
+  // 要示範超連結的話可以之後直接在 Checklists 工作表的 link 欄位貼網址）。
+  var paddedRows = rows.map(function (r) { return r.concat(['']); });
 
   withLock_(function () {
     var lastRow = sheet.getLastRow();
     if (lastRow > 1) {
       sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
     }
-    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    sheet.getRange(2, 1, paddedRows.length, headers.length).setValues(paddedRows);
   });
 
   Logger.log('已寫入 ' + rows.length + ' 筆範例檢核表範本，涵蓋山域/水域/火警/化災四個類別。');

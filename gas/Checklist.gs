@@ -40,6 +40,7 @@ function handleGetCaseChecklist_(body) {
       group: t.group,
       item: t.item,
       sort: Number(t.sort) || 0,
+      link: t.link || '',
       done: match ? truthy_(match.done) : false,
       done_by: match ? match.done_by : '',
       done_at: match ? match.done_at : ''

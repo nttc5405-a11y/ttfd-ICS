@@ -174,6 +174,7 @@
   .checklist-item:last-child { border-bottom: none; }
   .checklist-item input[type="checkbox"] { width: auto; margin-top: 3px; flex-shrink: 0; }
   .checklist-meta { font-size: 0.8rem; color: var(--muted); }
+  .checklist-item a { color: var(--primary); }
 
   .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 8px; }
   .data-table th, .data-table td {
@@ -240,8 +241,6 @@
 
   .inline-form { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
 
-  .log-entry .site-card-header { margin-bottom: 0; }
-
   .gantt-site-block { margin-bottom: 18px; }
   .gantt-site-title { font-weight: bold; margin-bottom: 8px; }
   .gantt-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -265,6 +264,18 @@
     background-image: repeating-linear-gradient(45deg, var(--primary), var(--primary) 6px, #dd8f89 6px, #dd8f89 12px);
   }
   .report-controls label:first-of-type { margin-top: 0; }
+
+  #personnel-status-panel summary {
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    list-style: none;
+  }
+  #personnel-status-panel summary::-webkit-details-marker { display: none; }
+  #personnel-status-panel summary::before { content: "▸ "; }
+  #personnel-status-panel[open] summary::before { content: "▾ "; }
+  #personnel-status-panel h4 { margin: 10px 0 4px; font-size: 0.9rem; }
+  #personnel-status-panel h4:first-of-type { margin-top: 12px; }
 
   .toggle-inline {
     display: block;
@@ -302,10 +313,18 @@
   @media (min-width: 900px) {
     .container { max-width: 1100px; }
     #home-view { max-width: 480px; margin: 0 auto; }
-    #config-card, #ics-new-site-form, #maps-upload-form,
+    #maps-upload-form,
     #panel-settings .card:first-child {
       max-width: 480px;
     }
+    /* ICS 看板頂部：新增主場地（固定窄寬）跟人員動態（吃剩餘空間）並排 */
+    .ics-top-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .ics-top-row #ics-new-site-form { flex: 0 0 380px; margin-bottom: 0; }
+    .ics-top-row #personnel-status-panel { flex: 1; margin-bottom: 0; }
     /* 人員管制：單筆報到（窄）跟批次報到（要寬一點才看得清楚表格式輸入）並排，
        已報到人員清單整條在下面獨立一列。 */
     .personnel-forms-row {
@@ -369,15 +388,6 @@
   <main class="container">
 
     <div id="home-view">
-
-      <section id="config-card" class="card" hidden>
-        <h2>初次設定：後端網址</h2>
-        <p class="hint-text">請貼上 GAS 部署後拿到的 Web App 網址（結尾是 /exec）。只需設定一次，會記在這台裝置的瀏覽器裡。</p>
-        <label>後端網址</label>
-        <input type="text" id="gas-url-input" placeholder="https://script.google.com/macros/s/xxxx/exec">
-        <button id="save-gas-url-btn">儲存</button>
-        <p id="config-error" class="error-text"></p>
-      </section>
 
       <section id="forms-area" hidden>
         <div class="tabs">
@@ -516,10 +526,16 @@
 
       <div id="panel-ics" class="case-panel" hidden>
         <p id="ics-error" class="error-text"></p>
-        <div class="card" id="ics-new-site-form">
-          <h3>新增主場地</h3>
-          <input type="text" id="site-name-input" placeholder="場地名稱，例如：前進指揮所">
-          <button id="site-create-btn">新增</button>
+        <div class="ics-top-row">
+          <div class="card" id="ics-new-site-form">
+            <h3>新增主場地</h3>
+            <input type="text" id="site-name-input" placeholder="場地名稱，例如：前進指揮所">
+            <button id="site-create-btn">新增</button>
+          </div>
+          <details class="card" id="personnel-status-panel">
+            <summary id="personnel-status-summary">人員動態</summary>
+            <div id="personnel-status-content"></div>
+          </details>
         </div>
         <label class="toggle-inline">
           <input type="checkbox" id="show-closed-sites-toggle" style="width:auto; margin-right:6px;">
@@ -554,7 +570,14 @@
       <div id="panel-log" class="case-panel" hidden>
         <p id="log-error" class="error-text"></p>
         <button id="log-print-btn" class="btn-secondary no-print">列印本頁／另存 PDF</button>
-        <div id="log-timeline"></div>
+        <div class="card">
+          <div class="table-scroll">
+            <table class="data-table" id="log-table">
+              <thead><tr><th>時間</th><th>類型</th><th>工作場地</th><th>任務內容</th><th>執行人員</th></tr></thead>
+              <tbody id="log-tbody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div id="panel-report" class="case-panel" hidden>
@@ -631,10 +654,6 @@
     </div>
 
   </main>
-
-  <footer class="app-footer">
-    <button id="change-gas-url-btn" class="link-btn">變更後端網址設定</button>
-  </footer>
 
 <script>
   var STORAGE_URL_KEY = 'gcb_gas_url';
@@ -715,7 +734,6 @@
 
   function init() {
     var url = getGasUrl();
-    document.getElementById('config-card').hidden = !!url;
     document.getElementById('forms-area').hidden = !url;
 
     var session = getSession();
@@ -748,23 +766,6 @@
       }
     }).catch(function () {});
   }
-
-  document.getElementById('save-gas-url-btn').addEventListener('click', function () {
-    var val = document.getElementById('gas-url-input').value.trim();
-    var errEl = document.getElementById('config-error');
-    if (val.indexOf('https://script.google.com/') !== 0) {
-      errEl.textContent = '網址格式看起來不對，請確認是部署後拿到、結尾 /exec 的網址';
-      return;
-    }
-    errEl.textContent = '';
-    setGasUrl(val);
-    init();
-  });
-
-  document.getElementById('change-gas-url-btn').addEventListener('click', function () {
-    document.getElementById('gas-url-input').value = getGasUrl();
-    document.getElementById('config-card').hidden = false;
-  });
 
   Array.prototype.forEach.call(document.querySelectorAll('#home-view .tab-btn'), function (btn) {
     btn.addEventListener('click', function () {
@@ -1017,7 +1018,19 @@
       cb.addEventListener('change', function () { toggleChecklistItem(it.item, cb.checked); });
 
       var span = document.createElement('span');
-      span.textContent = it.item;
+      if (it.link) {
+        var link = document.createElement('a');
+        link.href = it.link;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = it.item;
+        // 點連結只是要開新分頁看表單/文件，不是要順便勾選這個項目——
+        // <label> 包住的子元素被點擊時瀏覽器預設會連帶觸發勾選框，這裡擋掉那個預設行為。
+        link.addEventListener('click', function (e) { e.stopPropagation(); });
+        span.appendChild(link);
+      } else {
+        span.textContent = it.item;
+      }
 
       row.appendChild(cb);
       row.appendChild(span);
@@ -1189,6 +1202,7 @@
   function renderIcsBoard() {
     document.getElementById('ics-new-site-form').hidden = !isEffectiveAdmin();
     document.getElementById('maps-upload-form').hidden = !isEffectiveAdmin();
+    renderPersonnelStatus();
 
     var container = document.getElementById('ics-sites-container');
     container.innerHTML = '';
@@ -1248,6 +1262,73 @@
   }
 
   document.getElementById('show-closed-sites-toggle').addEventListener('change', renderIcsBoard);
+
+  /**
+   * 人員動態：待命／派遣中的人員清單，直接用已經載入的 icsPersonnel + icsTasks 組出來，
+   * 不用多打一次 API。派遣中的人依照目前在哪個任務分組顯示，方便一眼看出誰在哪。
+   */
+  function renderPersonnelStatus() {
+    var summaryEl = document.getElementById('personnel-status-summary');
+    var container = document.getElementById('personnel-status-content');
+    container.innerHTML = '';
+
+    var standby = icsPersonnel.filter(function (p) { return p.status === '待命'; });
+    var dispatched = icsPersonnel.filter(function (p) { return p.status === '任務中'; });
+
+    summaryEl.textContent = '人員動態（待命 ' + standby.length + '・派遣中 ' + dispatched.length + '）';
+
+    var standbyTitle = document.createElement('h4');
+    standbyTitle.textContent = '待命（' + standby.length + '）';
+    container.appendChild(standbyTitle);
+
+    if (standby.length === 0) {
+      container.appendChild(hintP_('目前沒有待命人員。'));
+    } else {
+      container.appendChild(memberTagRow_(standby.map(function (p) {
+        return p.name + (p.unit ? '（' + p.unit + '）' : '');
+      })));
+    }
+
+    var dispatchedTitle = document.createElement('h4');
+    dispatchedTitle.textContent = '派遣中（' + dispatched.length + '）';
+    container.appendChild(dispatchedTitle);
+
+    var activeTasks = icsTasks.filter(function (t) {
+      return t.status === '派遣中' && t.members.some(function (m) { return !m.left_at; });
+    });
+
+    if (activeTasks.length === 0) {
+      container.appendChild(hintP_('目前沒有派遣中的人員。'));
+    } else {
+      activeTasks.forEach(function (t) {
+        var label = document.createElement('p');
+        label.className = 'hint-text';
+        label.style.margin = '6px 0 0';
+        label.textContent = '[' + t.type + '] ' + t.content;
+        container.appendChild(label);
+        container.appendChild(memberTagRow_(t.members.filter(function (m) { return !m.left_at; }).map(function (m) { return m.name; })));
+      });
+    }
+  }
+
+  function hintP_(text) {
+    var p = document.createElement('p');
+    p.className = 'hint-text';
+    p.textContent = text;
+    return p;
+  }
+
+  function memberTagRow_(names) {
+    var wrap = document.createElement('div');
+    wrap.className = 'member-tags';
+    names.forEach(function (name) {
+      var tag = document.createElement('span');
+      tag.className = 'member-tag';
+      tag.textContent = name;
+      wrap.appendChild(tag);
+    });
+    return wrap;
+  }
 
   function renderSiteCard(site, isChild) {
     var isAdmin = isEffectiveAdmin();
@@ -1682,43 +1763,53 @@
   }
 
   function renderWorkLog(entries) {
-    var container = document.getElementById('log-timeline');
-    container.innerHTML = '';
+    var tbody = document.getElementById('log-tbody');
+    tbody.innerHTML = '';
 
     if (entries.length === 0) {
-      var empty = document.createElement('div');
-      empty.className = 'card';
-      empty.innerHTML = '<p class="hint-text">目前沒有工作記事，建立場地或派遣任務後會自動出現在這裡。</p>';
-      container.appendChild(empty);
+      var emptyTr = document.createElement('tr');
+      var emptyTd = document.createElement('td');
+      emptyTd.colSpan = 5;
+      emptyTd.className = 'hint-text';
+      emptyTd.textContent = '目前沒有工作記事，建立場地或派遣任務後會自動出現在這裡。';
+      emptyTr.appendChild(emptyTd);
+      tbody.appendChild(emptyTr);
       return;
     }
 
     entries.forEach(function (entry) {
-      var card = document.createElement('div');
-      card.className = 'card log-entry';
+      var tr = document.createElement('tr');
 
-      var top = document.createElement('div');
-      top.className = 'site-card-header';
+      var timeTd = document.createElement('td');
+      timeTd.textContent = formatTime(entry.at);
+      tr.appendChild(timeTd);
 
+      var typeTd = document.createElement('td');
       var badgeInfo = logBadgeInfo(entry.type);
       var badge = document.createElement('span');
       badge.className = 'badge ' + badgeInfo.cls;
       badge.textContent = badgeInfo.text;
-      top.appendChild(badge);
+      typeTd.appendChild(badge);
+      tr.appendChild(typeTd);
 
-      var time = document.createElement('span');
-      time.className = 'hint-text';
-      time.textContent = formatTime(entry.at);
-      top.appendChild(time);
+      var siteTd = document.createElement('td');
+      siteTd.textContent = entry.site_name;
+      tr.appendChild(siteTd);
 
-      card.appendChild(top);
+      var contentTd = document.createElement('td');
+      if (entry.type === 'task_start' || entry.type === 'task_end') {
+        contentTd.textContent = '[' + entry.task_type + '] ' + entry.task_content +
+          (entry.type === 'task_end' ? '（' + entry.status + '）' : '');
+      } else {
+        contentTd.textContent = '－';
+      }
+      tr.appendChild(contentTd);
 
-      var text = document.createElement('p');
-      text.style.margin = '8px 0 0';
-      text.textContent = logEntryText(entry);
-      card.appendChild(text);
+      var membersTd = document.createElement('td');
+      membersTd.textContent = (entry.members && entry.members.length > 0) ? entry.members.join('、') : '－';
+      tr.appendChild(membersTd);
 
-      container.appendChild(card);
+      tbody.appendChild(tr);
     });
   }
 
@@ -1728,16 +1819,6 @@
     if (type === 'task_start') return { cls: 'badge-task-active', text: '任務派遣' };
     if (type === 'task_end') return { cls: 'badge-task-done', text: '任務結束' };
     return { cls: 'badge-closed', text: type };
-  }
-
-  function logEntryText(entry) {
-    if (entry.type === 'site_open' || entry.type === 'site_close') {
-      return '工作場地：' + entry.site_name;
-    }
-    var members = entry.members && entry.members.length > 0 ? entry.members.join('、') : '（無派遣人員）';
-    var base = '工作場地：' + entry.site_name + '　任務：[' + entry.task_type + '] ' + entry.task_content;
-    if (entry.type === 'task_end') base += '（' + entry.status + '）';
-    return base + '　執行人員：' + members;
   }
 
   // ---- 報表看板 ----
