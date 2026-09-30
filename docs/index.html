@@ -291,6 +291,28 @@
   .case-list-item:first-child { margin-top: 0; }
   .case-list-item span:first-child { font-weight: bold; }
 
+  .deployment-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; font-size: 0.8rem; }
+  .legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  .deployment-scroll { overflow-x: auto; padding-bottom: 6px; }
+  .deployment-grid { display: flex; gap: 12px; align-items: flex-start; }
+  .deployment-day { flex: 0 0 200px; }
+  .deployment-day-header {
+    background: #2b2b2b; color: #fff; padding: 8px; border-radius: 6px 6px 0 0;
+    text-align: center; font-weight: bold; font-size: 0.85rem;
+  }
+  .deployment-site-box {
+    border: 1px solid var(--border);
+    border-top: 3px solid #999;
+    padding: 8px;
+    margin-top: 8px;
+    border-radius: 0 0 4px 4px;
+    font-size: 0.8rem;
+  }
+  .deployment-site-name { font-weight: bold; margin-bottom: 4px; }
+  .deployment-person { padding: 1px 0; }
+
   .badge-overdue { background: #ffebee; color: #c62828; font-weight: bold; }
   .task-card.overdue { border: 1px solid #e57373; background: #fff5f5; }
 
@@ -621,6 +643,15 @@
           <h3>甘特圖（依工作場地）</h3>
           <p class="hint-text">斜紋長條代表任務還在進行中（持續作業），長條延伸到現在。</p>
           <div id="gantt-container"></div>
+        </div>
+
+        <div class="card">
+          <h3>每日人力部署表</h3>
+          <p class="hint-text">依工作場地分組、依人員單位分色，格式參考現場常見的紙本人次表。橫向可捲動。</p>
+          <div id="deployment-legend" class="deployment-legend"></div>
+          <div class="deployment-scroll">
+            <div id="deployment-table" class="deployment-grid"></div>
+          </div>
         </div>
       </div>
 
@@ -1858,16 +1889,121 @@
         token: currentSession.token, case_id: currentSession.case.case_id,
         mode: mode, date: dateStr, group_by: groupBy
       }),
-      callApi('getIcsBoard', { token: currentSession.token, case_id: currentSession.case.case_id })
+      callApi('getIcsBoard', { token: currentSession.token, case_id: currentSession.case.case_id }),
+      callApi('getDailyDeployment', {
+        token: currentSession.token, case_id: currentSession.case.case_id,
+        mode: mode, date: dateStr
+      })
     ])).then(function (results) {
       var reportRes = results[0];
       var boardRes = results[1];
+      var deployRes = results[2];
       if (!reportRes.ok) { errEl.textContent = reportRes.error || '載入報表失敗'; return; }
       renderReportTable(reportRes);
       if (boardRes.ok) {
         renderGantt(boardRes.sites, boardRes.tasks, mode, dateStr);
       }
+      if (deployRes.ok) {
+        renderDeploymentTable(deployRes.days);
+      }
     }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  }
+
+  /**
+   * 每日人力部署表：橫向依日期分欄，每欄底下依工作場地列出當天實際派遣的人員，
+   * 人名依所屬單位自動分色（同一份報表裡同單位永遠同色），下面附色塊對照表。
+   */
+  function renderDeploymentTable(days) {
+    var container = document.getElementById('deployment-table');
+    var legendEl = document.getElementById('deployment-legend');
+    container.innerHTML = '';
+    legendEl.innerHTML = '';
+
+    if (days.length === 0) {
+      container.innerHTML = '<p class="hint-text">目前沒有出勤紀錄可以產生部署表。</p>';
+      return;
+    }
+
+    var unitColors = assignUnitColors_(days);
+
+    Object.keys(unitColors).forEach(function (u) {
+      var item = document.createElement('span');
+      item.className = 'legend-item';
+      var dot = document.createElement('span');
+      dot.className = 'legend-dot';
+      dot.style.background = unitColors[u];
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(u));
+      legendEl.appendChild(item);
+    });
+
+    days.forEach(function (day, idx) {
+      var col = document.createElement('div');
+      col.className = 'deployment-day';
+
+      var header = document.createElement('div');
+      header.className = 'deployment-day-header';
+      header.textContent = formatDeploymentDate_(day.date, idx);
+      col.appendChild(header);
+
+      if (day.sites.length === 0) {
+        var none = document.createElement('p');
+        none.className = 'hint-text';
+        none.style.textAlign = 'center';
+        none.style.marginTop = '8px';
+        none.textContent = '（無出勤）';
+        col.appendChild(none);
+      } else {
+        day.sites.forEach(function (site) {
+          var box = document.createElement('div');
+          box.className = 'deployment-site-box';
+
+          var name = document.createElement('div');
+          name.className = 'deployment-site-name';
+          name.textContent = site.site_name;
+          box.appendChild(name);
+
+          site.people.forEach(function (p) {
+            var row = document.createElement('div');
+            row.className = 'deployment-person';
+            row.style.color = unitColors[p.unit || '（未填單位）'];
+            row.textContent = p.name;
+            box.appendChild(row);
+          });
+
+          col.appendChild(box);
+        });
+      }
+
+      container.appendChild(col);
+    });
+  }
+
+  var DEPLOYMENT_PALETTE = ['#1e3a5f', '#e67e22', '#8e44ad', '#808000', '#c0392b', '#27632a', '#16817a', '#2874a6', '#a04000', '#6c3483'];
+
+  function assignUnitColors_(days) {
+    var units = [];
+    days.forEach(function (d) {
+      d.sites.forEach(function (s) {
+        s.people.forEach(function (p) {
+          var u = p.unit || '（未填單位）';
+          if (units.indexOf(u) === -1) units.push(u);
+        });
+      });
+    });
+    var map = {};
+    units.forEach(function (u, i) { map[u] = DEPLOYMENT_PALETTE[i % DEPLOYMENT_PALETTE.length]; });
+    return map;
+  }
+
+  function formatDeploymentDate_(dateStr, idx) {
+    var parts = dateStr.split('-');
+    return parts[1] + '/' + parts[2] + ' 第' + toChineseNum_(idx + 1) + '日';
+  }
+
+  function toChineseNum_(n) {
+    var cn = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+    return cn[n - 1] || String(n);
   }
 
   function renderReportTable(res) {

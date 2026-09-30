@@ -66,6 +66,8 @@ function doPost(e) {
         return jsonResponse_(handleGetWorkLog_(body));
       case 'getReport':
         return jsonResponse_(handleGetReport_(body));
+      case 'getDailyDeployment':
+        return jsonResponse_(handleGetDailyDeployment_(body));
       case 'getCaseSettings':
         return jsonResponse_(handleGetCaseSettings_(body));
       case 'updateCaseSettings':
