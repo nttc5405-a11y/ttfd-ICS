@@ -548,6 +548,17 @@
 
       <div id="panel-ics" class="case-panel" hidden>
         <p id="ics-error" class="error-text"></p>
+        <datalist id="task-type-list">
+          <option value="搜索"></option>
+          <option value="救援"></option>
+          <option value="醫療"></option>
+          <option value="後送"></option>
+          <option value="警戒"></option>
+          <option value="偵查"></option>
+          <option value="空勤"></option>
+          <option value="通訊"></option>
+          <option value="補給"></option>
+        </datalist>
         <div class="ics-top-row">
           <div class="card" id="ics-new-site-form">
             <h3>新增主場地</h3>
@@ -1603,13 +1614,12 @@
     container.appendChild(h4);
 
     var typeLabel = document.createElement('label'); typeLabel.textContent = '任務類型';
-    var typeSelect = document.createElement('select');
-    ['搜索', '救援'].forEach(function (t) {
-      var opt = document.createElement('option'); opt.value = t; opt.textContent = t;
-      typeSelect.appendChild(opt);
-    });
+    var typeInput = document.createElement('input');
+    typeInput.type = 'text';
+    typeInput.setAttribute('list', 'task-type-list');
+    typeInput.placeholder = '例如：搜索、救援，可自行輸入其他類型';
     container.appendChild(typeLabel);
-    container.appendChild(typeSelect);
+    container.appendChild(typeInput);
 
     var contentLabel = document.createElement('label'); contentLabel.textContent = '任務內容';
     var contentInput = document.createElement('input'); contentInput.type = 'text';
@@ -1641,7 +1651,7 @@
     var submitBtn = document.createElement('button');
     submitBtn.textContent = '建立任務';
     submitBtn.addEventListener('click', function () {
-      doCreateTask(siteId, typeSelect.value, contentInput.value.trim(), leaderSelect.value, checkboxList, errP, false, submitBtn);
+      doCreateTask(siteId, typeInput.value.trim(), contentInput.value.trim(), leaderSelect.value, checkboxList, errP, false, submitBtn);
     });
     container.appendChild(submitBtn);
     container.appendChild(errP);
@@ -1649,6 +1659,7 @@
 
   function doCreateTask(siteId, type, content, leaderId, checkboxList, errEl, force, btn) {
     errEl.textContent = '';
+    if (!type) { errEl.textContent = '請輸入任務類型'; return; }
     if (!content) { errEl.textContent = '請輸入任務內容'; return; }
     var memberIds = getCheckedValues(checkboxList);
 

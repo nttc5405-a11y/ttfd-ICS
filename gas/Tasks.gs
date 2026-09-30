@@ -5,7 +5,9 @@
  * 使用者確認後帶 force:true 重送，同時會把該員從原任務調出（填 left_at）。
  */
 
-var TASK_TYPES = ['搜索', '救援'];
+// 任務類型不再限制固定清單，前端是自由輸入（附常用選項快選），這裡只檢查有沒有填。
+// TASK_TYPE_SUGGESTIONS 只是給前端 <datalist> 快選用的常用建議，不是驗證用的白名單。
+var TASK_TYPE_SUGGESTIONS = ['搜索', '救援', '醫療', '後送', '警戒', '偵查', '空勤', '通訊', '補給'];
 
 /**
  * action: createTask
@@ -16,13 +18,13 @@ function handleCreateTask_(body) {
   var auth = requireAuth_(body.token, 'admin', caseId);
 
   var siteId = body.site_id;
-  var type = body.type;
+  var type = String(body.type || '').trim();
   var content = String(body.content || '').trim();
   var leaderId = String(body.leader_id || '').trim();
   var memberIds = Array.isArray(body.member_ids) ? body.member_ids.slice() : [];
   var force = !!body.force;
 
-  if (TASK_TYPES.indexOf(type) === -1) return { ok: false, error: '任務類型需為搜索或救援' };
+  if (!type) return { ok: false, error: '請輸入任務類型' };
   if (!content) return { ok: false, error: '請輸入任務內容' };
 
   var site = findSiteById_(caseId, siteId);
