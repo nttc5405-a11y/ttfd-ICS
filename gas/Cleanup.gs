@@ -2,20 +2,28 @@
  * 刪除案件（含所有關聯資料）。
  *
  * 兩種用法：
- *   1. 【推薦，日常用】試算表上方選單「案件管理 → 刪除「🗑刪除案件」分頁選擇的案件」，
- *      點進「🗑刪除案件」分頁、下拉選單選一個案件，再從選單執行刪除，會跳確認視窗。
- *      這個分頁第一次要先手動跑一次 setupCaseDeleteTool() 才會出現，之後就一直在、不用重設。
- *   2. 【批次用，适合一次清多筆】Apps Script 編輯器手動執行 devDeleteCases()，照函式裡的
- *      說明把要刪除的 case_id 填進陣列再執行，一次可以刪多筆。
+ *   1. 【推薦，日常用，支援單筆或一次勾多筆】試算表「🗑刪除案件」分頁：每個案件一列、
+ *      前面有勾選框，勾一個或勾多個都可以，勾完點上方選單「案件管理 → 刪除勾選的案件」，
+ *      會跳確認視窗列出要刪的案件名稱，確認後才真的刪除。
+ *      這個分頁第一次要先手動跑一次 setupCaseDeleteTool() 才會出現；之後案件有異動
+ *      （新建、改名…）要重新整理清單，用選單「案件管理 → 重新整理待刪除清單」。
+ *   2. 【進階，不想開試算表 UI 時用】Apps Script 編輯器手動執行 devDeleteCases()，照函式裡的
+ *      說明把要刪除的 case_id 填進陣列再執行。效果跟方法 1 一樣，只是操作介面不同。
  *
  * 不管哪種用法，都是真的永久刪除（試算表沒有回收桶等級的救援機制），Drive 圖資資料夾會丟進
  * 垃圾桶（可從 Drive 垃圾桶復原，相對安全），其他資料刪了就是刪了，執行前務必看清楚案件名稱。
  *
  * 會清掉的資料：Cases、Settings（該案件的個別設定）、CaseChecklist、Personnel、Sites、Tasks、
  * TaskMembers（透過 task_id 對應，這張表本身沒有 case_id 欄位）、Maps、EventLog、Marquee、Reports。
+ *
+ * 清單用「重新整理」當下拍的快照（寫死的值，不是即時公式），勾選框跟案件的對應關係不會因為
+ * Cases 工作表之後有異動而跑掉；真正刪除時是讀每一列隱藏的 case_id 欄位去比對，不是看第幾列，
+ * 避免「位置對應錯誤」這種本專案出過的資料配對陷阱（見 .claude/rules 的教訓紀錄）。
  */
 
 var DELETE_TOOL_SHEET_NAME = '🗑刪除案件';
+var DELETE_LIST_FIRST_DATA_ROW = 3;
+var DELETE_LIST_COLUMNS = 6; // 勾選框、名稱、類別、狀態、建立時間、case_id（隱藏）
 var CASCADE_SHEETS_WITH_CASE_ID = ['Cases', 'Settings', 'CaseChecklist', 'Personnel', 'Sites', 'Tasks', 'Maps', 'EventLog', 'Marquee', 'Reports'];
 
 /**
@@ -25,13 +33,14 @@ var CASCADE_SHEETS_WITH_CASE_ID = ['Cases', 'Settings', 'CaseChecklist', 'Person
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('案件管理')
-    .addItem('刪除「🗑刪除案件」分頁選擇的案件', 'deleteCaseFromDropdown')
+    .addItem('重新整理待刪除清單', 'refreshCaseDeleteList')
+    .addItem('刪除勾選的案件', 'deleteCheckedCases')
     .addToUi();
 }
 
 /**
- * 手動執行一次：建立「🗑刪除案件」分頁（下拉選單＋說明文字）。可重複執行，
- * 會重設這個分頁的內容跟公式，不會動到 Cases 等其他工作表的任何資料。
+ * 手動執行一次：建立「🗑刪除案件」分頁（標題、表頭、欄寬），並立刻填入目前的案件清單。
+ * 可重複執行，會重設這個分頁的版面，不會動到 Cases 等其他工作表的任何資料。
  */
 function setupCaseDeleteTool() {
   var ss = SpreadsheetApp.getActive();
@@ -40,82 +49,112 @@ function setupCaseDeleteTool() {
   sheet.clear();
   sheet.clearFormats();
 
-  sheet.getRange('A1').setValue('選擇要刪除的案件（會連同所有關聯資料一起永久刪除，無法復原！）')
+  sheet.getRange('A1').setValue('勾選要刪除的案件（可以勾一筆或多筆），再用上方「案件管理」選單執行刪除。會連同所有關聯資料一起永久刪除，無法復原！')
     .setFontWeight('bold').setFontColor('#c62828');
-  sheet.getRange('A2').setValue('案件：');
-  sheet.getRange('B2').setValue('');
-  sheet.getRange('A3').setValue('← 選好之後，點上方選單「案件管理」→「刪除「🗑刪除案件」分頁選擇的案件」，會先跳確認視窗再真的刪除。');
-  sheet.getRange('A3').setFontColor('#757575');
-  sheet.getRange('A4').setValue('如果上方沒有「案件管理」選單，重新整理這個試算表的網頁分頁再看一次。');
-  sheet.getRange('A4').setFontColor('#757575');
+  sheet.getRange(2, 1, 1, DELETE_LIST_COLUMNS).setValues([['刪除', '案件名稱', '類別', '狀態', '建立時間', 'case_id']]);
+  sheet.getRange(2, 1, 1, DELETE_LIST_COLUMNS).setFontWeight('bold');
 
-  // D 欄：下拉選單的資料來源（案件顯示文字，名稱＋類別＋狀態＋建立時間，避免同名案件選錯）。
-  sheet.getRange('D1').setValue('（下拉選單資料來源，不要手動編輯）');
-  sheet.getRange('D2').setFormula(
-    '=ARRAYFORMULA(IF(Cases!A2:A="","",' +
-    'Cases!C2:C&"（"&Cases!B2:B&"・"&Cases!D2:D&"・建立於"&LEFT(SUBSTITUTE(Cases!E2:E,"T"," "),16)&"）"))'
-  );
+  sheet.setColumnWidth(1, 50);
+  sheet.setColumnWidth(2, 260);
+  sheet.setColumnWidth(3, 70);
+  sheet.setColumnWidth(4, 70);
+  sheet.setColumnWidth(5, 140);
+  sheet.hideColumns(6); // case_id 欄，內部比對用，不用給使用者看
 
-  // C 欄：把 B2 選到的顯示文字反查回真正的 case_id（刪除函式讀這一格，不是讀 B2 的文字本身）。
-  sheet.getRange('C1').setValue('（對應的 case_id，不要手動編輯）');
-  sheet.getRange('C2').setFormula('=IFERROR(INDEX(Cases!A:A, MATCH(B2, D:D, 0)), "")');
+  populateCaseDeleteList_(sheet);
 
-  var rule = SpreadsheetApp.newDataValidation()
-    .requireValueInRange(sheet.getRange('D2:D1000'), true)
-    .setAllowInvalid(false)
-    .build();
-  sheet.getRange('B2').setDataValidation(rule);
-
-  sheet.setColumnWidth(1, 420);
-  sheet.setColumnWidth(2, 320);
-  sheet.hideColumns(3, 2); // 隱藏 C、D 兩欄，使用者只需要看到 A、B
-
-  Logger.log('已建立「' + DELETE_TOOL_SHEET_NAME + '」分頁。切過去那個分頁，B2 選一個案件，' +
-    '再從上方「案件管理」選單執行刪除。如果選單沒出現，重新整理試算表頁面。');
+  Logger.log('已建立「' + DELETE_TOOL_SHEET_NAME + '」分頁並填入案件清單。切過去那個分頁，' +
+    '勾選要刪除的案件，再從上方「案件管理」選單執行刪除。如果選單沒出現，重新整理試算表頁面。');
 }
 
 /**
- * 選單動作：讀「🗑刪除案件」分頁 B2 選到的案件，跳確認視窗，確認後執行刪除。
+ * 選單動作：案件有新建、改名、結案等異動後，清單可能跟現況不同步，用這個重新整理
+ * （會先清空舊的勾選狀態，重新拍一份現況快照）。
  */
-function deleteCaseFromDropdown() {
+function refreshCaseDeleteList() {
+  var sheet = SpreadsheetApp.getActive().getSheetByName(DELETE_TOOL_SHEET_NAME);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('請先在 Apps Script 編輯器手動執行一次 setupCaseDeleteTool()。');
+    return;
+  }
+  populateCaseDeleteList_(sheet);
+  SpreadsheetApp.getUi().alert('清單已更新。');
+}
+
+/**
+ * 把目前所有案件寫成清單（從第 3 列開始，一案一列，含一個勾選框），寫死的值不是公式，
+ * 所以之後 Cases 工作表排序或內容變動，都不會讓已經打開的這份清單跟著默默改變。
+ */
+function populateCaseDeleteList_(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow >= DELETE_LIST_FIRST_DATA_ROW) {
+    sheet.getRange(DELETE_LIST_FIRST_DATA_ROW, 1, lastRow - DELETE_LIST_FIRST_DATA_ROW + 1, DELETE_LIST_COLUMNS).clearContent();
+  }
+
+  var cases = sheetToObjects_(getSheet_('Cases'));
+  cases.sort(function (a, b) { return a.created_at < b.created_at ? 1 : -1; }); // 新案件在前
+
+  if (cases.length === 0) return;
+
+  var rows = cases.map(function (c) {
+    return [false, c.name, c.category, c.status, String(c.created_at).replace('T', ' ').substring(0, 16), c.case_id];
+  });
+  sheet.getRange(DELETE_LIST_FIRST_DATA_ROW, 1, rows.length, DELETE_LIST_COLUMNS).setValues(rows);
+
+  var checkboxRule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+  sheet.getRange(DELETE_LIST_FIRST_DATA_ROW, 1, rows.length, 1).setDataValidation(checkboxRule);
+}
+
+/**
+ * 選單動作：讀「🗑刪除案件」分頁裡所有勾選的列，跳確認視窗列出案件名稱，確認後逐一刪除，
+ * 刪完自動重新整理清單（刪掉的案件會從清單消失）。
+ */
+function deleteCheckedCases() {
   var ui = SpreadsheetApp.getUi();
   var sheet = SpreadsheetApp.getActive().getSheetByName(DELETE_TOOL_SHEET_NAME);
   if (!sheet) {
-    ui.alert('找不到「' + DELETE_TOOL_SHEET_NAME + '」分頁，請先在 Apps Script 編輯器手動執行一次 setupCaseDeleteTool()。');
+    ui.alert('請先在 Apps Script 編輯器手動執行一次 setupCaseDeleteTool()。');
     return;
   }
 
-  var caseId = String(sheet.getRange('C2').getValue() || '').trim();
-  if (!caseId) {
-    ui.alert('請先到「' + DELETE_TOOL_SHEET_NAME + '」分頁的 B2 選一個要刪除的案件。');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < DELETE_LIST_FIRST_DATA_ROW) {
+    ui.alert('清單是空的，請先用選單「重新整理待刪除清單」。');
     return;
   }
 
-  var caseRow = findCaseById_(caseId);
-  if (!caseRow) {
-    ui.alert('找不到這個案件（可能剛好被刪過了），請重新整理頁面、重新選一次。');
+  var values = sheet.getRange(DELETE_LIST_FIRST_DATA_ROW, 1, lastRow - DELETE_LIST_FIRST_DATA_ROW + 1, DELETE_LIST_COLUMNS).getValues();
+  var checkedRows = values.filter(function (r) { return r[0] === true; });
+
+  if (checkedRows.length === 0) {
+    ui.alert('目前沒有勾選任何案件。');
     return;
   }
 
+  var names = checkedRows.map(function (r) { return r[1]; });
   var resp = ui.alert(
-    '確定要刪除「' + caseRow.name + '」嗎？',
-    '這個動作無法復原！會連同這個案件的場地、任務、人員報到、檢核表、狀況回報、圖資等所有關聯資料一起刪除。',
+    '確定要刪除以下 ' + checkedRows.length + ' 個案件嗎？',
+    names.join('\n') + '\n\n這個動作無法復原！會連同每個案件的場地、任務、人員報到、檢核表、' +
+      '狀況回報、圖資等所有關聯資料一起刪除。',
     ui.ButtonSet.YES_NO
   );
   if (resp !== ui.Button.YES) return;
 
-  var result = withLock_(function () { return deleteCaseCascade_(caseId, true); });
+  var results = withLock_(function () {
+    return checkedRows.map(function (r) { return deleteCaseCascade_(r[5], true); });
+  });
 
-  sheet.getRange('B2').clearContent();
-  ui.alert(
-    '已刪除「' + result.name + '」，共刪除 ' + result.total_deleted + ' 列資料。' +
-    (result.drive_note ? '\n' + result.drive_note : '')
-  );
+  var summaryLines = results.map(function (res) {
+    return '「' + res.name + '」共 ' + res.total_deleted + ' 列' + (res.drive_note ? '（已處理圖資）' : '');
+  });
+  ui.alert('刪除完成：\n' + summaryLines.join('\n'));
+
+  populateCaseDeleteList_(sheet);
 }
 
 /**
- * 手動執行：真正刪除 caseIdsToDelete 陣列裡列出的案件與所有關聯資料。一次可以刪多筆，
- * 適合清一整批測試案件；單筆刪除用「🗑刪除案件」分頁＋選單比較快，不用來 Apps Script 編輯器。
+ * 手動執行：真正刪除 caseIdsToDelete 陣列裡列出的案件與所有關聯資料。效果跟「🗑刪除案件」
+ * 分頁勾選刪除一樣，只是不開試算表 UI、直接在 Apps Script 編輯器操作時可以用這個。
  * ⚠️ 這個動作無法復原，執行前務必再三確認陣列裡的 case_id 都是你真的要刪的。
  */
 function devDeleteCases() {
@@ -145,8 +184,8 @@ function devDeleteCases() {
 }
 
 /**
- * 手動執行：列出所有案件方便對照，找出要刪除的 case_id（devDeleteCases 批次刪除用；
- * 「🗑刪除案件」分頁走下拉選單不需要用到這個）。
+ * 手動執行：列出所有案件方便對照，找出要刪除的 case_id（devDeleteCases 用；
+ * 「🗑刪除案件」分頁走勾選不需要用到這個）。
  */
 function devListCasesForCleanup() {
   var cases = sheetToObjects_(getSheet_('Cases'));
@@ -164,7 +203,7 @@ function devListCasesForCleanup() {
 
 /**
  * 實際執行一個案件的刪除：清掉所有關聯工作表的資料列，並視需要把 Drive 圖資資料夾丟進垃圾桶。
- * devDeleteCases()（批次）、deleteCaseFromDropdown()（選單單筆）共用這個函式，邏輯只寫一份。
+ * 「🗑刪除案件」分頁的勾選刪除、devDeleteCases() 批次都共用這個函式，邏輯只寫一份。
  * 回傳 { case_id, name, total_deleted, task_members_deleted, drive_note }。
  */
 function deleteCaseCascade_(caseId, alsoTrashDriveFolder) {
