@@ -196,3 +196,72 @@ function handleCheckinPersonnelBatch_(body) {
     return { ok: true, created_count: created.length, skipped: skipped };
   });
 }
+
+/**
+ * 從 personIds 裡找出「已經簽退（left_at 有值）」的人，回傳 [{person_id, name}]。
+ * 派遣任務／任務中增加人員前用這個擋下「指派已經離場的人」這種不合理狀態
+ * （Tasks.gs 的 createTask／updateTaskMembers 會呼叫）。
+ */
+function findCheckedOutAmong_(caseId, personIds) {
+  if (!personIds || personIds.length === 0) return [];
+  var nameMap = personnelNameMap_(caseId);
+  var leftSet = {};
+  sheetToObjects_(getSheet_('Personnel')).forEach(function (p) {
+    if (p.case_id === caseId && p.left_at) leftSet[p.person_id] = true;
+  });
+  return personIds.filter(function (id) { return leftSet[id]; })
+    .map(function (id) { return { person_id: id, name: nameMap[id] || '（未知人員）' }; });
+}
+
+/**
+ * action: checkoutPersonnel（簽退，支援單筆或一次多筆，前端都丟陣列）
+ * body: { action:'checkoutPersonnel', token, case_id, person_ids:[...] }
+ * 已經簽退過、或目前還在「任務中」（被派遣在某個 ICS 任務上）的人會被跳過並列出原因，
+ * 不會讓整批失敗；「任務中」的人要先從任務的「增減人員」移除，才能簽退——這是刻意的，
+ * 避免人還掛在執行中的任務上，畫面卻顯示已經離場，造成指揮官誤判現場人力。
+ */
+function handleCheckoutPersonnel_(body) {
+  var caseId = body.case_id;
+  var auth = requireAuth_(body.token, 'admin', caseId);
+
+  var personIds = Array.isArray(body.person_ids)
+    ? body.person_ids.filter(function (id, idx, arr) { return id && arr.indexOf(id) === idx; })
+    : [];
+  if (personIds.length === 0) return { ok: false, error: '請選擇要簽退的人員' };
+
+  var statusMap = personnelStatusMap_(caseId);
+  var nameMap = personnelNameMap_(caseId);
+
+  return withLock_(function () {
+    var checkedOut = [];
+    var skipped = [];
+
+    personIds.forEach(function (pid) {
+      var name = nameMap[pid] || '（未知人員）';
+      var status = statusMap[pid];
+      if (!nameMap.hasOwnProperty(pid)) {
+        skipped.push({ person_id: pid, name: name, reason: '不屬於這個案件' });
+        return;
+      }
+      if (status === '離場') {
+        skipped.push({ person_id: pid, name: name, reason: '已經簽退過' });
+        return;
+      }
+      if (status === '任務中') {
+        skipped.push({ person_id: pid, name: name, reason: '仍在任務中，需先從任務「增減人員」移除才能簽退' });
+        return;
+      }
+      updateRow_('Personnel', function (r) {
+        return r.case_id === caseId && r.person_id === pid;
+      }, { left_at: nowIso_() });
+      checkedOut.push({ person_id: pid, name: name });
+    });
+
+    if (checkedOut.length > 0) {
+      var names = checkedOut.map(function (c) { return c.name; }).join('、');
+      appendEventLog_(caseId, 'checkout', '', checkedOut.length + ' 人：' + names, auth.operatorName);
+    }
+
+    return { ok: true, checked_out_count: checkedOut.length, skipped: skipped };
+  });
+}

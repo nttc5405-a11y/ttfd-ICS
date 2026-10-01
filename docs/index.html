@@ -212,6 +212,13 @@
   .site-actions button, .task-actions button {
     width: auto; margin-top: 0; padding: 6px 10px; font-size: 0.85rem;
   }
+
+  .unit-block { border-left: 4px solid var(--primary); margin-bottom: 12px; }
+  .unit-block:last-child { margin-bottom: 0; }
+  .unit-block-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .unit-block-header h3, .unit-block-header h4 { margin: 0; }
+  .unit-block-header button { width: auto; padding: 6px 10px; font-size: 0.85rem; }
+  .unit-block .data-table input[type="checkbox"] { width: auto; }
   .btn-secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
   .btn-secondary:hover { background: #f0f0f0; }
 
@@ -554,13 +561,12 @@
         </div>
 
         <div class="card">
-          <h3>已報到人員（<span id="p-count">0</span>）</h3>
-          <div class="table-scroll">
-            <table class="data-table" id="personnel-table">
-              <thead><tr><th>單位</th><th>子單位</th><th>姓名</th><th>專長</th><th>位置</th><th>報到時間</th></tr></thead>
-              <tbody id="personnel-tbody"></tbody>
-            </table>
+          <div class="unit-block-header">
+            <h3>已報到人員（依單位分組，<span id="p-count">0</span> 人）</h3>
+            <button id="p-checkout-btn" class="btn-secondary">簽退勾選的人員</button>
           </div>
+          <p id="p-checkout-result" class="hint-text"></p>
+          <div id="personnel-units-container"></div>
         </div>
       </div>
 
@@ -993,6 +999,7 @@
     var isAdmin = isEffectiveAdmin();
     document.getElementById('personnel-admin-forms').hidden = !isAdmin;
     document.getElementById('personnel-batch-form').hidden = !isAdmin;
+    document.getElementById('p-checkout-btn').hidden = !isAdmin;
     document.getElementById('settings-tab-btn').hidden = currentSession.role !== 'admin';
     document.getElementById('case-close-btn').hidden = !(currentSession.role === 'admin' && !isClosed);
 
@@ -1149,20 +1156,235 @@
       });
   }
 
+  var UNFILLED_UNIT_LABEL = '（未填單位）';
+
+  /**
+   * 已報到人員依「單位」分組成一個個區塊，同單位再加人不用重複打單位名稱
+   * （區塊上的「+ 新增人員」已經把單位帶好了）。單位是「第一個這個單位的人報到」時
+   * 自然長出來的，不用另外「建立單位」這個步驟。
+   */
   function renderPersonnel(list) {
-    var tbody = document.getElementById('personnel-tbody');
-    tbody.innerHTML = '';
+    document.getElementById('p-count').textContent = list.length;
+
+    var container = document.getElementById('personnel-units-container');
+    container.innerHTML = '';
+
+    if (list.length === 0) {
+      container.appendChild(emptyHint_('目前還沒有人報到。'));
+      return;
+    }
+
+    var groups = {};
     list.forEach(function (p) {
+      var key = p.unit || UNFILLED_UNIT_LABEL;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    });
+
+    var unitNames = Object.keys(groups).sort(function (a, b) {
+      if (a === UNFILLED_UNIT_LABEL) return 1;
+      if (b === UNFILLED_UNIT_LABEL) return -1;
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+
+    var isAdmin = isEffectiveAdmin();
+    unitNames.forEach(function (unitName) {
+      container.appendChild(renderUnitBlock_(unitName, groups[unitName], isAdmin));
+    });
+  }
+
+  function personnelStatusBadgeClass_(status) {
+    if (status === '任務中') return 'badge-onduty';
+    if (status === '離場') return 'badge-left';
+    return 'badge-standby';
+  }
+
+  function unitSlug_(unitName) {
+    return unitName.replace(/[^a-zA-Z0-9一-龥]/g, '_');
+  }
+
+  function renderUnitBlock_(unitName, people, isAdmin) {
+    var card = document.createElement('div');
+    card.className = 'card unit-block';
+
+    var header = document.createElement('div');
+    header.className = 'unit-block-header';
+    var h4 = document.createElement('h4');
+    h4.textContent = unitName + '（' + people.length + '）';
+    header.appendChild(h4);
+
+    var formId = 'unit-add-form-' + unitSlug_(unitName);
+    if (isAdmin) {
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn-secondary';
+      addBtn.textContent = '+ 新增人員';
+      addBtn.addEventListener('click', function () {
+        toggleUnitAddForm(formId, unitName === UNFILLED_UNIT_LABEL ? '' : unitName);
+      });
+      header.appendChild(addBtn);
+    }
+    card.appendChild(header);
+
+    if (isAdmin) {
+      var formContainer = document.createElement('div');
+      formContainer.id = formId;
+      formContainer.className = 'inline-form';
+      formContainer.hidden = true;
+      card.appendChild(formContainer);
+    }
+
+    var tableWrap = document.createElement('div');
+    tableWrap.className = 'table-scroll';
+    var table = document.createElement('table');
+    table.className = 'data-table';
+
+    var thead = document.createElement('thead');
+    var headRow = document.createElement('tr');
+    var headers = (isAdmin ? [''] : []).concat(['子單位', '姓名', '專長', '位置', '報到時間', '狀態']);
+    headers.forEach(function (h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    people.forEach(function (p) {
       var tr = document.createElement('tr');
-      [p.unit, p.sub_unit, p.name, p.specialty, p.checkin_zone, formatTime(p.checkin_at)].forEach(function (val) {
+      if (isAdmin) {
+        var cbTd = document.createElement('td');
+        if (p.status !== '離場') {
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.className = 'personnel-checkout-checkbox';
+          cb.value = p.person_id;
+          cbTd.appendChild(cb);
+        }
+        tr.appendChild(cbTd);
+      }
+      [p.sub_unit, p.name, p.specialty, p.checkin_zone, formatTime(p.checkin_at)].forEach(function (val) {
         var td = document.createElement('td');
         td.textContent = val || '';
         tr.appendChild(td);
       });
+      var statusTd = document.createElement('td');
+      var badge = document.createElement('span');
+      badge.className = 'badge ' + personnelStatusBadgeClass_(p.status);
+      badge.textContent = p.status;
+      statusTd.appendChild(badge);
+      tr.appendChild(statusTd);
       tbody.appendChild(tr);
     });
-    document.getElementById('p-count').textContent = list.length;
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    card.appendChild(tableWrap);
+
+    return card;
   }
+
+  /**
+   * 單位區塊上的「+ 新增人員」：單位已經固定好了，只要填子單位/姓名/專長/報到位置，
+   * 跟單筆報到共用同一個 checkinPersonnel action，只是 unit 這欄是帶死的。
+   */
+  function toggleUnitAddForm(formId, unitName) {
+    var container = document.getElementById(formId);
+    if (!container) return;
+    if (!container.hidden) { container.hidden = true; container.innerHTML = ''; return; }
+    container.hidden = false;
+    container.innerHTML = '';
+
+    var subLabel = document.createElement('label'); subLabel.textContent = '子單位';
+    var subInput = document.createElement('input'); subInput.type = 'text';
+    container.appendChild(subLabel);
+    container.appendChild(subInput);
+
+    var nameLabel = document.createElement('label'); nameLabel.textContent = '姓名';
+    var nameInput = document.createElement('input'); nameInput.type = 'text';
+    container.appendChild(nameLabel);
+    container.appendChild(nameInput);
+
+    var specialtyLabel = document.createElement('label'); specialtyLabel.textContent = '專長';
+    var specialtyInput = document.createElement('input'); specialtyInput.type = 'text';
+    container.appendChild(specialtyLabel);
+    container.appendChild(specialtyInput);
+
+    var zoneLabel = document.createElement('label'); zoneLabel.textContent = '報到位置';
+    var zoneInput = document.createElement('input'); zoneInput.type = 'text'; zoneInput.value = '指揮站';
+    container.appendChild(zoneLabel);
+    container.appendChild(zoneInput);
+
+    var errP = document.createElement('p');
+    errP.className = 'error-text';
+
+    var submitBtn = document.createElement('button');
+    submitBtn.textContent = unitName ? ('新增到「' + unitName + '」') : '新增人員';
+    submitBtn.addEventListener('click', function () {
+      var name = nameInput.value.trim();
+      if (!name) { errP.className = 'error-text'; errP.textContent = '請輸入姓名'; return; }
+      errP.textContent = '';
+
+      withBusy(submitBtn, callApiOrQueue('checkinPersonnel', {
+        token: currentSession.token,
+        case_id: currentSession.case.case_id,
+        unit: unitName,
+        sub_unit: subInput.value.trim(),
+        name: name,
+        specialty: specialtyInput.value.trim(),
+        checkin_zone: zoneInput.value.trim() || '指揮站'
+      })).then(function (res) {
+        if (res.queued) {
+          errP.className = 'hint-text';
+          errP.textContent = '目前離線，已記錄這筆報到，恢復連線後會自動送出。';
+          return;
+        }
+        if (!res.ok) { errP.className = 'error-text'; errP.textContent = res.error || '報到失敗'; return; }
+        container.hidden = true;
+        container.innerHTML = '';
+        loadPersonnel();
+      }).catch(function (e) { errP.className = 'error-text'; errP.textContent = '連線失敗：' + e.message; });
+    });
+    container.appendChild(submitBtn);
+    container.appendChild(errP);
+  }
+
+  document.getElementById('p-checkout-btn').addEventListener('click', function () {
+    var btn = this;
+    var resultEl = document.getElementById('p-checkout-result');
+    resultEl.textContent = '';
+
+    var checkedIds = Array.prototype.map.call(
+      document.querySelectorAll('.personnel-checkout-checkbox:checked'),
+      function (cb) { return cb.value; }
+    );
+    if (checkedIds.length === 0) {
+      resultEl.className = 'error-text';
+      resultEl.textContent = '請先勾選要簽退的人員（已簽退過的人不會出現勾選框）。';
+      return;
+    }
+    if (!window.confirm('確定要把勾選的 ' + checkedIds.length + ' 位人員標記為已簽退嗎？')) return;
+
+    withBusy(btn, callApiOrQueue('checkoutPersonnel', {
+      token: currentSession.token,
+      case_id: currentSession.case.case_id,
+      person_ids: checkedIds
+    })).then(function (res) {
+      if (res.queued) {
+        resultEl.className = 'hint-text';
+        resultEl.textContent = '目前離線，已記錄這批簽退，恢復連線後會自動送出。';
+        return;
+      }
+      if (!res.ok) { resultEl.className = 'error-text'; resultEl.textContent = res.error || '簽退失敗'; return; }
+      var msg = '已簽退 ' + res.checked_out_count + ' 人';
+      if (res.skipped && res.skipped.length > 0) {
+        msg += '，略過 ' + res.skipped.length + ' 人（' +
+          res.skipped.map(function (s) { return s.name + '：' + s.reason; }).join('；') + '）';
+      }
+      resultEl.className = 'hint-text';
+      resultEl.textContent = msg;
+      if (!res.queued) loadPersonnel();
+    }).catch(function (e) { resultEl.className = 'error-text'; resultEl.textContent = '連線失敗：' + e.message; });
+  });
 
   document.getElementById('p-checkin-btn').addEventListener('click', function () {
     var btn = this;
@@ -1344,6 +1566,8 @@
    * 人員動態：待命／派遣中的人員清單，直接用已經載入的 icsPersonnel + icsTasks 組出來，
    * 不用多打一次 API。派遣中的人依照目前在哪個任務分組顯示，方便一眼看出誰在哪。
    */
+  var personnelCheckoutSelectMode = false;
+
   function renderPersonnelStatus() {
     var summaryEl = document.getElementById('personnel-status-summary');
     var container = document.getElementById('personnel-status-content');
@@ -1354,12 +1578,28 @@
 
     summaryEl.textContent = '人員動態（待命 ' + standby.length + '・派遣中 ' + dispatched.length + '）';
 
+    var standbyHeader = document.createElement('div');
+    standbyHeader.className = 'unit-block-header';
     var standbyTitle = document.createElement('h4');
     standbyTitle.textContent = '待命（' + standby.length + '）';
-    container.appendChild(standbyTitle);
+    standbyHeader.appendChild(standbyTitle);
+
+    if (isEffectiveAdmin() && standby.length > 0) {
+      var toggleBtn = document.createElement('button');
+      toggleBtn.className = 'btn-secondary';
+      toggleBtn.textContent = personnelCheckoutSelectMode ? '取消簽退' : '簽退';
+      toggleBtn.addEventListener('click', function () {
+        personnelCheckoutSelectMode = !personnelCheckoutSelectMode;
+        renderPersonnelStatus();
+      });
+      standbyHeader.appendChild(toggleBtn);
+    }
+    container.appendChild(standbyHeader);
 
     if (standby.length === 0) {
       container.appendChild(hintP_('目前沒有待命人員。'));
+    } else if (personnelCheckoutSelectMode) {
+      container.appendChild(buildCheckoutSelectBox_(standby));
     } else {
       container.appendChild(memberTagRow_(standby.map(function (p) {
         return p.name + (p.unit ? '（' + p.unit + '）' : '');
@@ -1386,6 +1626,63 @@
         container.appendChild(memberTagRow_(t.members.filter(function (m) { return !m.left_at; }).map(function (m) { return m.name; }), true));
       });
     }
+  }
+
+  /**
+   * 「待命」清單進入簽退模式時用：勾選框清單＋確認按鈕，勾人送出 checkoutPersonnel。
+   * 完成後把選取模式關掉、重新整理整個 ICS 看板（徽章、人員動態都會跟著更新）。
+   */
+  function buildCheckoutSelectBox_(people) {
+    var wrap = document.createElement('div');
+
+    var list = document.createElement('div');
+    list.className = 'checkbox-list';
+    people.forEach(function (p) {
+      var label = document.createElement('label');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'ics-checkout-checkbox';
+      cb.value = p.person_id;
+      var span = document.createElement('span');
+      span.textContent = p.name + (p.unit ? '（' + p.unit + '）' : '');
+      label.appendChild(cb);
+      label.appendChild(span);
+      list.appendChild(label);
+    });
+    wrap.appendChild(list);
+
+    var errP = document.createElement('p');
+    errP.className = 'error-text';
+
+    var confirmBtn = document.createElement('button');
+    confirmBtn.textContent = '確認簽退勾選的人員';
+    confirmBtn.addEventListener('click', function () {
+      var ids = Array.prototype.map.call(
+        wrap.querySelectorAll('.ics-checkout-checkbox:checked'),
+        function (cb) { return cb.value; }
+      );
+      if (ids.length === 0) { errP.textContent = '請先勾選要簽退的人員'; return; }
+      if (!window.confirm('確定要把勾選的 ' + ids.length + ' 位人員標記為已簽退嗎？')) return;
+      errP.textContent = '';
+
+      withBusy(confirmBtn, callApiOrQueue('checkoutPersonnel', {
+        token: currentSession.token,
+        case_id: currentSession.case.case_id,
+        person_ids: ids
+      })).then(function (res) {
+        if (!res.ok) { errP.textContent = res.error || '簽退失敗'; return; }
+        personnelCheckoutSelectMode = false;
+        if (!res.queued && res.skipped && res.skipped.length > 0) {
+          window.alert('已簽退 ' + res.checked_out_count + ' 人；略過 ' + res.skipped.length + ' 人：\n' +
+            res.skipped.map(function (s) { return s.name + '：' + s.reason; }).join('\n'));
+        }
+        loadIcsBoard();
+      }).catch(function (e) { errP.textContent = '連線失敗：' + e.message; });
+    });
+    wrap.appendChild(confirmBtn);
+    wrap.appendChild(errP);
+
+    return wrap;
   }
 
   function hintP_(text) {
@@ -1728,12 +2025,17 @@
    */
   function buildPersonnelCheckboxList(container, selectedIds) {
     container.innerHTML = '';
-    if (icsPersonnel.length === 0) {
+    // 已簽退（離場）的人不給派遣——人已經不在現場了；已經勾選的（理論上不會發生，但保險起見）
+    // 還是留著，不要讓既有勾選莫名消失。
+    var selectable = icsPersonnel.filter(function (p) {
+      return p.status !== '離場' || selectedIds.indexOf(p.person_id) !== -1;
+    });
+    if (selectable.length === 0) {
       container.innerHTML = '<p class="hint-text">還沒有人員報到，請先到「人員管制」分頁報到。</p>';
       return;
     }
-    var notDispatched = icsPersonnel.filter(function (p) { return p.status !== '任務中'; });
-    var dispatched = icsPersonnel.filter(function (p) { return p.status === '任務中'; });
+    var notDispatched = selectable.filter(function (p) { return p.status !== '任務中'; });
+    var dispatched = selectable.filter(function (p) { return p.status === '任務中'; });
 
     function addRow(p) {
       var label = document.createElement('label');
@@ -1833,7 +2135,7 @@
     var leaderSelect = document.createElement('select');
     var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '（不指定）';
     leaderSelect.appendChild(emptyOpt);
-    icsPersonnel.forEach(function (p) {
+    icsPersonnel.filter(function (p) { return p.status !== '離場'; }).forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p.person_id;
       opt.textContent = p.name + '（' + (p.unit || '無單位') + '・' + p.status + '）';
@@ -2047,6 +2349,10 @@
       } else if (entry.type === 'status_report') {
         contentTd.textContent = (entry.task_content ? entry.task_content + '：' : '') + entry.report_content;
         if (entry.level === '緊急') contentTd.style.color = '#c62828';
+      } else if (entry.type === 'personnel_checkin' || entry.type === 'personnel_checkout') {
+        contentTd.textContent = entry.person_name + (entry.unit ? '（' + entry.unit + '）' : '');
+      } else if (entry.type === 'task_member_add' || entry.type === 'task_member_remove') {
+        contentTd.textContent = entry.task_content + '：' + entry.person_name;
       } else {
         contentTd.textContent = '－';
       }
@@ -2070,6 +2376,10 @@
     if (type === 'site_close') return { cls: 'badge-closed', text: '場地撤收' };
     if (type === 'task_start') return { cls: 'badge-task-active', text: '任務派遣' };
     if (type === 'task_end') return { cls: 'badge-task-done', text: '任務結束' };
+    if (type === 'personnel_checkin') return { cls: 'badge-open', text: '人員報到' };
+    if (type === 'personnel_checkout') return { cls: 'badge-left', text: '人員簽退' };
+    if (type === 'task_member_add') return { cls: 'badge-task-active', text: '任務加人' };
+    if (type === 'task_member_remove') return { cls: 'badge-task-abort', text: '任務移除人員' };
     if (type === 'status_report') {
       return entry.level === '緊急'
         ? { cls: 'badge-report-urgent', text: '⚠ 緊急回報' }
@@ -2363,13 +2673,13 @@
   document.getElementById('log-print-btn').addEventListener('click', function () { window.print(); });
 
   // ---- 離線佇列 ----
-  // 報到、批次報到、勾選檢核表、結束任務、撤收場地、狀況回報 這幾個動作，斷線時不會直接失敗，
+  // 報到、批次報到、簽退、勾選檢核表、結束任務、撤收場地、狀況回報 這幾個動作，斷線時不會直接失敗，
   // 而是先存進 localStorage 的佇列，畫面顯示「未同步 N 筆」，恢復連線後自動依序補送。
   // 「派遣任務」「增減人員」「建立場地」等需要即時判斷重複派遣衝突的動作，離線時無法排入佇列
   // （沒有網路就沒辦法知道現在誰在哪個任務，硬送出去可能造成錯誤的雙重派遣），這是刻意的安全考量。
 
   var OFFLINE_QUEUE_KEY = 'gcb_offline_queue';
-  var OFFLINE_QUEUEABLE = ['checkinPersonnel', 'checkinPersonnelBatch', 'toggleChecklistItem', 'endTask', 'closeSite', 'createReport'];
+  var OFFLINE_QUEUEABLE = ['checkinPersonnel', 'checkinPersonnelBatch', 'checkoutPersonnel', 'toggleChecklistItem', 'endTask', 'closeSite', 'createReport'];
 
   function getOfflineQueue() {
     try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); }

@@ -34,6 +34,11 @@ function handleCreateTask_(body) {
   if (leaderId && memberIds.indexOf(leaderId) === -1) memberIds.push(leaderId);
   memberIds = memberIds.filter(function (id, idx) { return id && memberIds.indexOf(id) === idx; });
 
+  var checkedOut = findCheckedOutAmong_(caseId, memberIds);
+  if (checkedOut.length > 0) {
+    return { ok: false, error: '以下人員已經簽退，不能派遣：' + checkedOut.map(function (c) { return c.name; }).join('、') };
+  }
+
   return withLock_(function () {
     var conflicts = findDispatchConflicts_(memberIds, caseId);
     if (conflicts.length > 0 && !force) {
@@ -84,6 +89,11 @@ function handleUpdateTaskMembers_(body) {
   if (!task) return { ok: false, error: '找不到此任務' };
   if (task.status !== '派遣中') return { ok: false, error: '任務已結束，不能異動人員' };
 
+  var checkedOut = findCheckedOutAmong_(caseId, addIds);
+  if (checkedOut.length > 0) {
+    return { ok: false, error: '以下人員已經簽退，不能加入任務：' + checkedOut.map(function (c) { return c.name; }).join('、') };
+  }
+
   return withLock_(function () {
     if (addIds.length > 0) {
       var conflicts = findDispatchConflicts_(addIds, caseId).filter(function (c) {
@@ -109,7 +119,15 @@ function handleUpdateTaskMembers_(body) {
     });
 
     if (addIds.length > 0 || removeIds.length > 0) {
-      appendEventLog_(caseId, 'update_task_members', taskId, '+' + addIds.length + ' / -' + removeIds.length, auth.operatorName);
+      var nameMap = personnelNameMap_(caseId);
+      var detailParts = [];
+      if (addIds.length > 0) {
+        detailParts.push('加入：' + addIds.map(function (id) { return nameMap[id] || '（未知人員）'; }).join('、'));
+      }
+      if (removeIds.length > 0) {
+        detailParts.push('移除：' + removeIds.map(function (id) { return nameMap[id] || '（未知人員）'; }).join('、'));
+      }
+      appendEventLog_(caseId, 'update_task_members', taskId, detailParts.join('；'), auth.operatorName);
     }
 
     return { ok: true };

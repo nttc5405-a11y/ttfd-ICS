@@ -1,7 +1,8 @@
 /**
- * 工作記事：把場地開設/撤收、任務派遣/結束整理成依時間排序的時間軸。
- * 資料來源是目前的 Sites/Tasks/TaskMembers（這些資料本身就是靠 EventLog 對應的動作寫入的，
- * 這裡直接從現況重建時間軸，不用另外解析 EventLog 文字內容）。
+ * 工作記事：把場地開設/撤收、任務派遣/結束、人員報到/簽退、任務中途增減人員、狀況回報
+ * 整理成依時間排序的時間軸。資料來源是目前的 Sites/Tasks/TaskMembers/Personnel/Reports
+ * 這幾張表的現況，不解析 EventLog 文字內容（EventLog 的 detail 多半只是給人看的摘要字串，
+ * 不保證好剖析；這裡能從結構化欄位重建的，就不去動 EventLog）。
  */
 
 /**
@@ -65,6 +66,32 @@ function handleGetWorkLog_(body) {
         members: members,
         status: t.status
       });
+    }
+  });
+
+  // 人員報到／簽退：直接從 Personnel 的 checkin_at／left_at 重建，不解析 EventLog。
+  sheetToObjects_(getSheet_('Personnel')).filter(function (p) { return p.case_id === caseId; }).forEach(function (p) {
+    var displayName = nameMap[p.person_id] || p.name;
+    entries.push({ at: p.checkin_at, type: 'personnel_checkin', site_name: '', person_name: displayName, unit: p.unit });
+    if (p.left_at) {
+      entries.push({ at: p.left_at, type: 'personnel_checkout', site_name: '', person_name: displayName, unit: p.unit });
+    }
+  });
+
+  // 任務進行中的增減人員：只挑「跟任務本身的派遣/結束時間不同」的異動，排除掉建立任務當下
+  // 的初始派遣、跟任務結束時自動收尾那批人（這兩種已經由 task_start／task_end 顯示過了）。
+  taskMembers.forEach(function (tm) {
+    var task = taskById[tm.task_id];
+    if (!task || !nameMap.hasOwnProperty(tm.person_id)) return;
+    var memberName = nameMap[tm.person_id];
+    var siteName = siteNameById[task.site_id] || '（未知場地）';
+    var taskLabel = '[' + task.type + '] ' + task.content;
+
+    if (tm.joined_at !== task.dispatched_at) {
+      entries.push({ at: tm.joined_at, type: 'task_member_add', site_name: siteName, task_content: taskLabel, person_name: memberName });
+    }
+    if (tm.left_at && tm.left_at !== task.ended_at) {
+      entries.push({ at: tm.left_at, type: 'task_member_remove', site_name: siteName, task_content: taskLabel, person_name: memberName });
     }
   });
 
