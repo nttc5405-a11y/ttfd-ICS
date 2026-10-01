@@ -223,7 +223,8 @@
   .task-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
   .task-header strong { font-size: 0.95rem; }
   .member-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-  .member-tag { background: #e0e0e0; border-radius: 4px; padding: 2px 6px; font-size: 0.8rem; }
+  .member-tag { background: #d7f0d9; border-radius: 4px; padding: 2px 6px; font-size: 0.8rem; }
+  .member-tag-dispatched { background: #ffddab; }
 
   .checkbox-list {
     max-height: 220px;
@@ -235,7 +236,14 @@
   }
   .checkbox-list label {
     display: flex; align-items: center; gap: 6px;
-    font-size: 0.9rem; padding: 4px 0; color: var(--text); margin: 0;
+    font-size: 0.9rem; padding: 4px 6px; color: var(--text); margin: 0;
+    border-radius: 4px;
+  }
+  .checkbox-list label.standby { background: #eaf6ea; }
+  .checkbox-list label.dispatched { background: #fff1dc; }
+  .checkbox-list .group-divider {
+    font-size: 0.75rem; color: var(--muted, #888); margin: 6px 0 2px; padding-top: 4px;
+    border-top: 1px dashed var(--border);
   }
   .checkbox-list input[type="checkbox"] { width: auto; }
 
@@ -1332,7 +1340,7 @@
     } else {
       container.appendChild(memberTagRow_(standby.map(function (p) {
         return p.name + (p.unit ? '（' + p.unit + '）' : '');
-      })));
+      }), false));
     }
 
     var dispatchedTitle = document.createElement('h4');
@@ -1352,7 +1360,7 @@
         label.style.margin = '6px 0 0';
         label.textContent = '[' + t.type + '] ' + t.content;
         container.appendChild(label);
-        container.appendChild(memberTagRow_(t.members.filter(function (m) { return !m.left_at; }).map(function (m) { return m.name; })));
+        container.appendChild(memberTagRow_(t.members.filter(function (m) { return !m.left_at; }).map(function (m) { return m.name; }), true));
       });
     }
   }
@@ -1364,12 +1372,12 @@
     return p;
   }
 
-  function memberTagRow_(names) {
+  function memberTagRow_(names, isDispatched) {
     var wrap = document.createElement('div');
     wrap.className = 'member-tags';
     names.forEach(function (name) {
       var tag = document.createElement('span');
-      tag.className = 'member-tag';
+      tag.className = 'member-tag' + (isDispatched ? ' member-tag-dispatched' : '');
       tag.textContent = name;
       wrap.appendChild(tag);
     });
@@ -1541,14 +1549,22 @@
     return card;
   }
 
+  /**
+   * 派遣人員勾選清單：未派遣（待命/離場）放上面、已派遣（任務中）放下面並用不同色塊區分，
+   * 方便一眼看出誰還能派、誰已經在別的任務上了。
+   */
   function buildPersonnelCheckboxList(container, selectedIds) {
     container.innerHTML = '';
     if (icsPersonnel.length === 0) {
       container.innerHTML = '<p class="hint-text">還沒有人員報到，請先到「人員管制」分頁報到。</p>';
       return;
     }
-    icsPersonnel.forEach(function (p) {
+    var notDispatched = icsPersonnel.filter(function (p) { return p.status !== '任務中'; });
+    var dispatched = icsPersonnel.filter(function (p) { return p.status === '任務中'; });
+
+    function addRow(p) {
       var label = document.createElement('label');
+      label.className = p.status === '任務中' ? 'dispatched' : 'standby';
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.value = p.person_id;
@@ -1558,7 +1574,16 @@
       label.appendChild(cb);
       label.appendChild(span);
       container.appendChild(label);
-    });
+    }
+
+    notDispatched.forEach(addRow);
+    if (dispatched.length > 0) {
+      var divider = document.createElement('p');
+      divider.className = 'group-divider';
+      divider.textContent = '以下人員目前任務中（' + dispatched.length + '）';
+      container.appendChild(divider);
+      dispatched.forEach(addRow);
+    }
   }
 
   function getCheckedValues(container) {
