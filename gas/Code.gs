@@ -76,6 +76,8 @@ function doPost(e) {
         return jsonResponse_(handleUpdateCaseSettings_(body));
       case 'closeCase':
         return jsonResponse_(handleCloseCase_(body));
+      case 'updateCaseTimes':
+        return jsonResponse_(handleUpdateCaseTimes_(body));
       case 'uploadMap':
         return jsonResponse_(handleUploadMap_(body));
       case 'getMaps':

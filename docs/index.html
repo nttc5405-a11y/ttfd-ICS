@@ -705,6 +705,21 @@
         </div>
 
         <div class="card">
+          <h3>案件時間</h3>
+          <p class="hint-text">
+            案件有時是事後才補登到系統裡（例如現場忙完才回來建檔），這裡可以把起始／結束時間
+            改成事件實際發生的時間，不用遷就「建立案件當下」的時間。
+          </p>
+          <label>案件起始時間</label>
+          <input type="datetime-local" id="case-time-created">
+          <label>案件結束時間</label>
+          <input type="datetime-local" id="case-time-closed">
+          <p id="case-time-closed-hint" class="hint-text">案件還沒結案，沒有結束時間可以改；結案後才能在這裡補正。</p>
+          <button id="case-times-save-btn">儲存案件時間</button>
+          <p id="case-times-save-result" class="hint-text"></p>
+        </div>
+
+        <div class="card">
           <h3>案件跑馬燈公告</h3>
           <p class="hint-text">內容要到試算表 Marquee 工作表新增（case_id 填這個案件的 case_id、enabled 填 TRUE）。這裡先預覽目前生效中的內容：</p>
           <div id="case-marquee-preview" class="hint-text"></div>
@@ -2580,6 +2595,12 @@
         document.getElementById('setting-name-mask-enabled').checked = s.name_mask_enabled;
         document.getElementById('setting-overdue-hours').value = s.overdue_hours;
 
+        var ct = res.case_times || {};
+        var isClosed = ct.status === '結案';
+        document.getElementById('case-time-created').value = isoToDatetimeLocal_(ct.created_at);
+        document.getElementById('case-time-closed').value = isoToDatetimeLocal_(ct.closed_at);
+        document.getElementById('case-time-closed-hint').hidden = isClosed;
+
         var preview = document.getElementById('case-marquee-preview');
         if (res.marquee.length > 0) {
           preview.textContent = res.marquee.map(function (m) { return m.content; }).join('　｜　');
@@ -2591,8 +2612,42 @@
         Array.prototype.forEach.call(document.querySelectorAll('#panel-settings input, #panel-settings button'), function (el) {
           el.disabled = !isAdmin;
         });
+        // 結束時間只有案件已結案才能改，就算是管理身分、案件還在進行中也不能先填（還沒結案不會有這個值）
+        if (!isClosed) document.getElementById('case-time-closed').disabled = true;
       }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
   }
+
+  // "2026-09-28T09:00:00+08:00" → "2026-09-28T09:00"（datetime-local 輸入框要的格式）；
+  // 反向組字串時固定補 +08:00，不用真的建立 Date 物件去換算時區（這裡的使用者都在台灣，
+  // 瀏覽器顯示的 datetime-local 值本來就是當地時間，直接補時區字串最不容易出錯）。
+  function isoToDatetimeLocal_(iso) {
+    return iso ? String(iso).substring(0, 16) : '';
+  }
+  function datetimeLocalToIso_(value) {
+    if (!value) return '';
+    return value.substring(0, 16) + ':00+08:00';
+  }
+
+  document.getElementById('case-times-save-btn').addEventListener('click', function () {
+    var btn = this;
+    var errEl = document.getElementById('settings-error');
+    var resultEl = document.getElementById('case-times-save-result');
+    errEl.textContent = '';
+    resultEl.textContent = '';
+
+    var payload = { token: currentSession.token, case_id: currentSession.case.case_id };
+    var createdVal = document.getElementById('case-time-created').value;
+    var closedVal = document.getElementById('case-time-closed').value;
+    if (createdVal) payload.created_at = datetimeLocalToIso_(createdVal);
+    if (closedVal) payload.closed_at = datetimeLocalToIso_(closedVal);
+
+    if (!payload.created_at && !payload.closed_at) { errEl.textContent = '請至少填一個時間'; return; }
+
+    withBusy(btn, callApi('updateCaseTimes', payload)).then(function (res) {
+      if (!res.ok) { errEl.textContent = res.error || '儲存失敗'; return; }
+      resultEl.textContent = '已儲存。';
+    }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
+  });
 
   document.getElementById('settings-save-btn').addEventListener('click', function () {
     var btn = this;

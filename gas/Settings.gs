@@ -15,6 +15,8 @@ var DEFAULT_OVERDUE_HOURS = 4;
  * action: getCaseSettings
  * body: { action:'getCaseSettings', token, case_id }
  * 檢視/管理模式都能讀（畫面上檢視模式看到的設定頁是唯讀），存檔要 admin。
+ * 回傳也附帶 case_times（起訖時間＋狀態），給設定頁的「案件時間」卡片用，
+ * 不用為了這個再多打一次 API。
  */
 function handleGetCaseSettings_(body) {
   var caseId = body.case_id;
@@ -38,7 +40,9 @@ function handleGetCaseSettings_(body) {
     .filter(function (m) { return truthy_(m.enabled); })
     .map(function (m) { return { content: m.content }; });
 
-  return { ok: true, settings: settings, marquee: marqueeItems };
+  var caseTimes = { status: caseRow.status, created_at: caseRow.created_at, closed_at: caseRow.closed_at };
+
+  return { ok: true, settings: settings, marquee: marqueeItems, case_times: caseTimes };
 }
 
 /**

@@ -208,6 +208,59 @@ function handleCloseCase_(body) {
 }
 
 /**
+ * action: updateCaseTimes（補正案件起訖時間）
+ * body: { action:'updateCaseTimes', token, case_id, created_at, closed_at }
+ * 用途：案件有時是事後才建到系統裡（例如忙完現場才回來補登），這時案件的「建立時間」
+ * 會是補登當下的時間，不是事件真正發生的時間，需要能手動改回正確的起始時間。
+ * created_at／closed_at 都可選，有帶哪個就更新哪個；結束時間只有案件已結案才能改
+ * （還沒結案的話結束時間本來就是空的，要用「結案」功能才會產生）。
+ * 兩個欄位都要是跟系統其他時間欄位一樣的 ISO 格式（含時區，例如 2026-09-28T09:00:00+08:00），
+ * 前端會負責組出這個格式，這裡只做基本驗證，不接受奇怪的格式混進資料。
+ */
+function handleUpdateCaseTimes_(body) {
+  var caseId = body.case_id;
+  var auth = requireAuth_(body.token, 'admin', caseId);
+
+  var caseRow = findCaseById_(caseId);
+  if (!caseRow) return { ok: false, error: '找不到此案件' };
+
+  var patch = {};
+
+  if (body.created_at) {
+    var createdAt = String(body.created_at).trim();
+    if (!isValidIsoDateTime_(createdAt)) return { ok: false, error: '起始時間格式不正確' };
+    patch.created_at = createdAt;
+  }
+
+  if (body.closed_at) {
+    if (caseRow.status !== '結案') return { ok: false, error: '案件還沒結案，沒有結束時間可以改' };
+    var closedAt = String(body.closed_at).trim();
+    if (!isValidIsoDateTime_(closedAt)) return { ok: false, error: '結束時間格式不正確' };
+    patch.closed_at = closedAt;
+  }
+
+  if (Object.keys(patch).length === 0) return { ok: false, error: '沒有要更新的欄位' };
+
+  var finalCreatedAt = patch.created_at || caseRow.created_at;
+  var finalClosedAt = patch.hasOwnProperty('closed_at') ? patch.closed_at : caseRow.closed_at;
+  if (finalClosedAt && finalClosedAt < finalCreatedAt) {
+    return { ok: false, error: '結束時間不能早於起始時間' };
+  }
+
+  return withLock_(function () {
+    updateRow_('Cases', function (r) { return r.case_id === caseId; }, patch);
+    appendEventLog_(caseId, 'update_case_times', caseId,
+      (patch.created_at ? '起始時間改為 ' + patch.created_at + ' ' : '') +
+      (patch.closed_at ? '結束時間改為 ' + patch.closed_at : ''), auth.operatorName);
+    return { ok: true };
+  });
+}
+
+function isValidIsoDateTime_(s) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(s);
+}
+
+/**
  * 依代碼在所有案件裡找出對應的案件與角色（admin_hash 優先於 view_hash 比對，
  * 但實務上兩者不會撞在一起，因為 createCase 建立時已擋掉重複代碼）。
  */
