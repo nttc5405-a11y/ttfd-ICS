@@ -229,8 +229,15 @@
     padding: 12px;
     margin-top: 10px;
   }
+  .log-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .log-toolbar select { width: auto; min-width: 140px; }
+  .log-toolbar button { width: auto; margin-left: auto; }
+
   .task-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
   .task-header strong { font-size: 0.95rem; }
+  .task-header-toggle { cursor: pointer; user-select: none; }
+  .task-toggle-icon { color: var(--muted, #888); margin-right: 2px; }
+  .task-body { margin-top: 2px; }
   .member-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
   .member-tag { background: #d7f0d9; border-radius: 4px; padding: 2px 6px; font-size: 0.8rem; }
   .member-tag-dispatched { background: #ffddab; }
@@ -626,7 +633,17 @@
       </div>
       <div id="panel-log" class="case-panel" hidden>
         <p id="log-error" class="error-text"></p>
-        <button id="log-print-btn" class="btn-secondary no-print">列印本頁／另存 PDF</button>
+        <div class="log-toolbar no-print">
+          <label for="log-filter-type" style="display:inline; margin-right:6px;">篩選類型</label>
+          <select id="log-filter-type" style="width:auto; display:inline-block;">
+            <option value="all">全部</option>
+            <option value="site">場地</option>
+            <option value="task">任務</option>
+            <option value="personnel">人員</option>
+            <option value="report">狀況回報</option>
+          </select>
+          <button id="log-print-btn" class="btn-secondary">列印本頁／另存 PDF</button>
+        </div>
         <div class="card">
           <div class="table-scroll">
             <table class="data-table" id="log-table">
@@ -1238,10 +1255,28 @@
     var table = document.createElement('table');
     table.className = 'data-table';
 
+    var tbody = document.createElement('tbody'); // 先宣告，表頭的「全選」勾選框要查這個 tbody 底下的勾選框
+
     var thead = document.createElement('thead');
     var headRow = document.createElement('tr');
-    var headers = (isAdmin ? [''] : []).concat(['子單位', '姓名', '專長', '位置', '報到時間', '狀態']);
-    headers.forEach(function (h) {
+    if (isAdmin) {
+      var selectAllTh = document.createElement('th');
+      var hasSelectable = people.some(function (p) { return p.status !== '離場'; });
+      if (hasSelectable) {
+        var selectAllCb = document.createElement('input');
+        selectAllCb.type = 'checkbox';
+        selectAllCb.title = '全選／取消全選這個單位';
+        selectAllCb.addEventListener('change', function () {
+          var checked = selectAllCb.checked;
+          Array.prototype.forEach.call(tbody.querySelectorAll('.personnel-checkout-checkbox'), function (cb) {
+            cb.checked = checked;
+          });
+        });
+        selectAllTh.appendChild(selectAllCb);
+      }
+      headRow.appendChild(selectAllTh);
+    }
+    ['子單位', '姓名', '專長', '位置', '報到時間', '狀態'].forEach(function (h) {
       var th = document.createElement('th');
       th.textContent = h;
       headRow.appendChild(th);
@@ -1249,7 +1284,6 @@
     thead.appendChild(headRow);
     table.appendChild(thead);
 
-    var tbody = document.createElement('tbody');
     people.forEach(function (p) {
       var tr = document.createElement('tr');
       if (isAdmin) {
@@ -1637,6 +1671,20 @@
 
     var list = document.createElement('div');
     list.className = 'checkbox-list';
+
+    var selectAllLabel = document.createElement('label');
+    var selectAllCb = document.createElement('input');
+    selectAllCb.type = 'checkbox';
+    var selectAllSpan = document.createElement('span');
+    selectAllSpan.textContent = '全選／取消全選';
+    selectAllLabel.appendChild(selectAllCb);
+    selectAllLabel.appendChild(selectAllSpan);
+    selectAllCb.addEventListener('change', function () {
+      var checked = selectAllCb.checked;
+      Array.prototype.forEach.call(list.querySelectorAll('.ics-checkout-checkbox'), function (cb) { cb.checked = checked; });
+    });
+    wrap.appendChild(selectAllLabel);
+
     people.forEach(function (p) {
       var label = document.createElement('label');
       var cb = document.createElement('input');
@@ -1902,18 +1950,33 @@
     return hours > caseOverdueHours;
   }
 
+  // 任務摺疊狀態：第一次畫某個任務時決定預設值（已結束的任務預設收合），
+  // 之後使用者自己點開/收合的選擇會記住，重新整理資料也不會被打回預設值。
+  var taskCollapseState = {};
+  function taskCollapsedDefault_(task) {
+    if (!taskCollapseState.hasOwnProperty(task.task_id)) {
+      taskCollapseState[task.task_id] = task.status !== '派遣中';
+    }
+    return taskCollapseState[task.task_id];
+  }
+
   function renderTaskCard(task) {
     var isAdmin = isEffectiveAdmin();
     var isActive = task.status === '派遣中';
     var overdue = isTaskOverdue(task);
     var taskReports = reportsForTask_(task.task_id);
     var urgentCount = urgentCount_(taskReports);
+    var collapsed = taskCollapsedDefault_(task);
 
     var card = document.createElement('div');
     card.className = 'task-card' + (overdue ? ' overdue' : '') + (urgentCount > 0 ? ' has-urgent-report' : '');
 
     var header = document.createElement('div');
-    header.className = 'task-header';
+    header.className = 'task-header task-header-toggle';
+    var toggleIcon = document.createElement('span');
+    toggleIcon.className = 'task-toggle-icon';
+    toggleIcon.textContent = collapsed ? '▸' : '▾';
+    header.appendChild(toggleIcon);
     var title = document.createElement('strong');
     title.textContent = '[' + task.type + '] ' + task.content;
     header.appendChild(title);
@@ -1940,14 +2003,25 @@
 
     card.appendChild(header);
 
+    var body = document.createElement('div');
+    body.className = 'task-body';
+    body.hidden = collapsed;
+
+    header.addEventListener('click', function () {
+      var newCollapsed = !body.hidden;
+      body.hidden = newCollapsed;
+      toggleIcon.textContent = newCollapsed ? '▸' : '▾';
+      taskCollapseState[task.task_id] = newCollapsed;
+    });
+
     var meta = document.createElement('p');
     meta.className = 'hint-text';
     meta.textContent = (task.leader_name ? '帶隊官：' + task.leader_name + '　' : '') +
       '派遣時間：' + formatTime(task.dispatched_at) +
       (task.ended_at ? '　結束時間：' + formatTime(task.ended_at) : '');
-    card.appendChild(meta);
+    body.appendChild(meta);
 
-    appendLatestReportLine_(card, taskReports);
+    appendLatestReportLine_(body, taskReports);
 
     var memberTags = document.createElement('div');
     memberTags.className = 'member-tags';
@@ -1965,7 +2039,7 @@
         memberTags.appendChild(tag);
       });
     }
-    card.appendChild(memberTags);
+    body.appendChild(memberTags);
 
     if (isAdmin) {
       var actions = document.createElement('div');
@@ -1999,22 +2073,24 @@
       });
       actions.appendChild(reportBtn);
 
-      card.appendChild(actions);
+      body.appendChild(actions);
 
       if (isActive) {
         var manageForm = document.createElement('div');
         manageForm.id = 'manage-members-form-' + task.task_id;
         manageForm.className = 'inline-form';
         manageForm.hidden = true;
-        card.appendChild(manageForm);
+        body.appendChild(manageForm);
       }
 
       var reportForm = document.createElement('div');
       reportForm.id = 'report-form-task-' + task.task_id;
       reportForm.className = 'inline-form';
       reportForm.hidden = true;
-      card.appendChild(reportForm);
+      body.appendChild(reportForm);
     }
+
+    card.appendChild(body);
 
     return card;
   }
@@ -2298,15 +2374,34 @@
 
   // ---- 工作記事 ----
 
+  var workLogEntries = [];
+  var WORKLOG_CATEGORY_MAP = {
+    site_open: 'site', site_close: 'site',
+    task_start: 'task', task_end: 'task', task_member_add: 'task', task_member_remove: 'task',
+    personnel_checkin: 'personnel', personnel_checkout: 'personnel',
+    status_report: 'report'
+  };
+
   function loadWorkLog() {
     var errEl = document.getElementById('log-error');
     errEl.textContent = '';
     callApi('getWorkLog', { token: currentSession.token, case_id: currentSession.case.case_id })
       .then(function (res) {
         if (!res.ok) { errEl.textContent = res.error || '載入工作記事失敗'; return; }
-        renderWorkLog(res.entries);
+        workLogEntries = res.entries;
+        applyWorkLogFilter();
       }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
   }
+
+  function applyWorkLogFilter() {
+    var filter = document.getElementById('log-filter-type').value;
+    var filtered = filter === 'all'
+      ? workLogEntries
+      : workLogEntries.filter(function (e) { return WORKLOG_CATEGORY_MAP[e.type] === filter; });
+    renderWorkLog(filtered);
+  }
+
+  document.getElementById('log-filter-type').addEventListener('change', applyWorkLogFilter);
 
   function renderWorkLog(entries) {
     var tbody = document.getElementById('log-tbody');
@@ -2317,7 +2412,9 @@
       var emptyTd = document.createElement('td');
       emptyTd.colSpan = 5;
       emptyTd.className = 'hint-text';
-      emptyTd.textContent = '目前沒有工作記事，建立場地或派遣任務後會自動出現在這裡。';
+      emptyTd.textContent = workLogEntries.length === 0
+        ? '目前沒有工作記事，建立場地或派遣任務後會自動出現在這裡。'
+        : '這個篩選條件下沒有紀錄，換個類型看看。';
       emptyTr.appendChild(emptyTd);
       tbody.appendChild(emptyTr);
       return;
@@ -2350,9 +2447,9 @@
         contentTd.textContent = (entry.task_content ? entry.task_content + '：' : '') + entry.report_content;
         if (entry.level === '緊急') contentTd.style.color = '#c62828';
       } else if (entry.type === 'personnel_checkin' || entry.type === 'personnel_checkout') {
-        contentTd.textContent = entry.person_name + (entry.unit ? '（' + entry.unit + '）' : '');
+        contentTd.textContent = entry.names.join('、');
       } else if (entry.type === 'task_member_add' || entry.type === 'task_member_remove') {
-        contentTd.textContent = entry.task_content + '：' + entry.person_name;
+        contentTd.textContent = entry.task_content + '：' + entry.names.join('、');
       } else {
         contentTd.textContent = '－';
       }
@@ -2361,6 +2458,9 @@
       var membersTd = document.createElement('td');
       if (entry.type === 'status_report') {
         membersTd.textContent = entry.reported_by || '－';
+      } else if (entry.type === 'personnel_checkin' || entry.type === 'personnel_checkout' ||
+                 entry.type === 'task_member_add' || entry.type === 'task_member_remove') {
+        membersTd.textContent = '－'; // 人名已經列在「任務內容」欄，這裡不重複顯示
       } else {
         membersTd.textContent = (entry.members && entry.members.length > 0) ? entry.members.join('、') : '－';
       }

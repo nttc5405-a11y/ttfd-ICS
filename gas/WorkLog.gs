@@ -70,29 +70,65 @@ function handleGetWorkLog_(body) {
   });
 
   // 人員報到／簽退：直接從 Personnel 的 checkin_at／left_at 重建，不解析 EventLog。
+  // 同一時間（同一次單筆或批次操作）的人合併成一筆紀錄，不然批次報到 10 個人會洗出 10 列，
+  // 畫面會很冗長——用「時間完全相同」當作「同一批」的判斷依據。
+  var checkinGroups = {};
+  var checkoutGroups = {};
   sheetToObjects_(getSheet_('Personnel')).filter(function (p) { return p.case_id === caseId; }).forEach(function (p) {
     var displayName = nameMap[p.person_id] || p.name;
-    entries.push({ at: p.checkin_at, type: 'personnel_checkin', site_name: '', person_name: displayName, unit: p.unit });
+    var label = displayName + (p.unit ? '（' + p.unit + '）' : '');
+    if (!checkinGroups[p.checkin_at]) checkinGroups[p.checkin_at] = [];
+    checkinGroups[p.checkin_at].push(label);
     if (p.left_at) {
-      entries.push({ at: p.left_at, type: 'personnel_checkout', site_name: '', person_name: displayName, unit: p.unit });
+      if (!checkoutGroups[p.left_at]) checkoutGroups[p.left_at] = [];
+      checkoutGroups[p.left_at].push(label);
     }
+  });
+  Object.keys(checkinGroups).forEach(function (at) {
+    entries.push({ at: at, type: 'personnel_checkin', site_name: '', names: checkinGroups[at] });
+  });
+  Object.keys(checkoutGroups).forEach(function (at) {
+    entries.push({ at: at, type: 'personnel_checkout', site_name: '', names: checkoutGroups[at] });
   });
 
   // 任務進行中的增減人員：只挑「跟任務本身的派遣/結束時間不同」的異動，排除掉建立任務當下
   // 的初始派遣、跟任務結束時自動收尾那批人（這兩種已經由 task_start／task_end 顯示過了）。
+  // 同一次「增減人員」操作一次加/移除多人時，同一任務＋同一時間的合併成一筆。
+  var addGroups = {};
+  var removeGroups = {};
   taskMembers.forEach(function (tm) {
     var task = taskById[tm.task_id];
     if (!task || !nameMap.hasOwnProperty(tm.person_id)) return;
     var memberName = nameMap[tm.person_id];
-    var siteName = siteNameById[task.site_id] || '（未知場地）';
-    var taskLabel = '[' + task.type + '] ' + task.content;
 
     if (tm.joined_at !== task.dispatched_at) {
-      entries.push({ at: tm.joined_at, type: 'task_member_add', site_name: siteName, task_content: taskLabel, person_name: memberName });
+      var addKey = tm.task_id + '|' + tm.joined_at;
+      if (!addGroups[addKey]) addGroups[addKey] = { at: tm.joined_at, task: task, names: [] };
+      addGroups[addKey].names.push(memberName);
     }
     if (tm.left_at && tm.left_at !== task.ended_at) {
-      entries.push({ at: tm.left_at, type: 'task_member_remove', site_name: siteName, task_content: taskLabel, person_name: memberName });
+      var removeKey = tm.task_id + '|' + tm.left_at;
+      if (!removeGroups[removeKey]) removeGroups[removeKey] = { at: tm.left_at, task: task, names: [] };
+      removeGroups[removeKey].names.push(memberName);
     }
+  });
+  Object.keys(addGroups).forEach(function (key) {
+    var g = addGroups[key];
+    entries.push({
+      at: g.at, type: 'task_member_add',
+      site_name: siteNameById[g.task.site_id] || '（未知場地）',
+      task_content: '[' + g.task.type + '] ' + g.task.content,
+      names: g.names
+    });
+  });
+  Object.keys(removeGroups).forEach(function (key) {
+    var g = removeGroups[key];
+    entries.push({
+      at: g.at, type: 'task_member_remove',
+      site_name: siteNameById[g.task.site_id] || '（未知場地）',
+      task_content: '[' + g.task.type + '] ' + g.task.content,
+      names: g.names
+    });
   });
 
   reportsForCase_(caseId).forEach(function (r) {
