@@ -70,8 +70,8 @@ function handleCloseSite_(body) {
 /**
  * action: getIcsBoard
  * body: { action:'getIcsBoard', token, case_id }
- * 一次回傳這個案件的場地＋任務（任務內含派遣人員姓名與帶隊官姓名），
- * 讓前端一次組出整個 ICS 看板，不用分好幾次要資料。
+ * 一次回傳這個案件的場地＋任務（任務內含派遣人員姓名與帶隊官姓名）＋狀況回報清單，
+ * 讓前端一次組出整個 ICS 看板（含緊急回報紅色徽章），不用分好幾次要資料。
  */
 function handleGetIcsBoard_(body) {
   var caseId = body.case_id;
@@ -127,7 +127,7 @@ function handleGetIcsBoard_(body) {
     };
   });
 
-  return { ok: true, sites: sitesOut, tasks: tasksOut };
+  return { ok: true, sites: sitesOut, tasks: tasksOut, reports: reportsForCase_(caseId) };
 }
 
 function findSiteById_(caseId, siteId) {

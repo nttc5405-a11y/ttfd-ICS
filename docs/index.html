@@ -199,6 +199,8 @@
   .badge-standby { background: #eef2f7; color: #445; }
   .badge-onduty { background: #fff3e0; color: #e65100; }
   .badge-left { background: #eeeeee; color: #757575; }
+  .badge-report-normal { background: #e3eefc; color: #1565c0; }
+  .badge-report-urgent { background: #ffebee; color: #c62828; font-weight: bold; }
 
   .site-card { border-left: 4px solid var(--primary); }
   .site-card.child { margin-left: 20px; border-left-color: var(--muted); background: #fafafa; }
@@ -322,7 +324,11 @@
   .deployment-person { padding: 1px 0; }
 
   .badge-overdue { background: #ffebee; color: #c62828; font-weight: bold; }
-  .task-card.overdue { border: 1px solid #e57373; background: #fff5f5; }
+  .task-card.overdue, .task-card.has-urgent-report, .site-card.has-urgent-report {
+    border: 1px solid #e57373; background: #fff5f5;
+  }
+  .report-line { font-size: 0.85rem; margin: 4px 0 0; }
+  .report-line.urgent { color: #c62828; font-weight: bold; }
 
   #maps-list .map-item {
     display: flex; justify-content: space-between; align-items: center;
@@ -1231,6 +1237,7 @@
   var icsSites = [];
   var icsTasks = [];
   var icsPersonnel = [];
+  var icsReports = [];
   var caseOverdueHours = 4;
 
   function loadIcsBoard() {
@@ -1247,6 +1254,7 @@
       if (!boardRes.ok) { errEl.textContent = boardRes.error || '載入 ICS 看板失敗'; return; }
       icsSites = boardRes.sites;
       icsTasks = boardRes.tasks;
+      icsReports = boardRes.reports || [];
       icsPersonnel = personnelRes.ok ? personnelRes.personnel : [];
       if (settingsRes.ok) caseOverdueHours = settingsRes.settings.overdue_hours;
       renderIcsBoard();
@@ -1384,12 +1392,108 @@
     return wrap;
   }
 
+  /**
+   * 狀況回報相關小工具：reportsForTask_/reportsForSite_ 從已載入的 icsReports 篩出跟這個
+   * 任務/場地有關的回報（場地的話，直接綁這個場地、或綁了這個場地底下任一任務的回報都算），
+   * 不用為了算紅色徽章另外打 API。
+   */
+  function reportsForTask_(taskId) {
+    return icsReports.filter(function (r) { return r.task_id === taskId; });
+  }
+  function reportsForSite_(siteId) {
+    var taskIds = icsTasks.filter(function (t) { return t.site_id === siteId; }).map(function (t) { return t.task_id; });
+    return icsReports.filter(function (r) {
+      if (r.site_id === siteId && !r.task_id) return true;
+      return r.task_id && taskIds.indexOf(r.task_id) !== -1;
+    });
+  }
+  function urgentCount_(reports) {
+    return reports.filter(function (r) { return r.level === '緊急'; }).length;
+  }
+  function latestReport_(reports) {
+    return reports.reduce(function (latest, r) {
+      return (!latest || r.reported_at > latest.reported_at) ? r : latest;
+    }, null);
+  }
+  function appendLatestReportLine_(card, reports) {
+    var latest = latestReport_(reports);
+    if (!latest) return;
+    var line = document.createElement('p');
+    line.className = 'report-line' + (latest.level === '緊急' ? ' urgent' : '');
+    line.textContent = (latest.level === '緊急' ? '⚠ ' : '') + '最新回報（' + formatTime(latest.reported_at) + '）：' +
+      latest.content + (reports.length > 1 ? '　（共 ' + reports.length + ' 筆，完整紀錄見工作記事）' : '') +
+      '　－' + latest.reported_by;
+    card.appendChild(line);
+  }
+
+  /**
+   * 狀況回報表單：siteId 一定會帶（任務一定屬於某個場地），taskId 綁任務時才帶、
+   * 場地層級的一般回報留空字串。送出後直接重新整理整個 ICS 看板，徽章跟著更新。
+   */
+  function toggleReportForm(formId, siteId, taskId) {
+    var container = document.getElementById(formId);
+    if (!container) return;
+    if (!container.hidden) { container.hidden = true; container.innerHTML = ''; return; }
+    container.hidden = false;
+    container.innerHTML = '';
+
+    var levelLabel = document.createElement('label'); levelLabel.textContent = '回報等級';
+    var levelSelect = document.createElement('select');
+    ['一般', '緊急'].forEach(function (lv) {
+      var opt = document.createElement('option'); opt.value = lv; opt.textContent = lv;
+      levelSelect.appendChild(opt);
+    });
+    container.appendChild(levelLabel);
+    container.appendChild(levelSelect);
+
+    var contentLabel = document.createElement('label'); contentLabel.textContent = '回報內容';
+    var contentInput = document.createElement('textarea');
+    contentInput.rows = 3;
+    contentInput.placeholder = '例如：發現患者一名，意識清楚，已初步處置';
+    container.appendChild(contentLabel);
+    container.appendChild(contentInput);
+
+    var errP = document.createElement('p');
+    errP.className = 'error-text';
+
+    var submitBtn = document.createElement('button');
+    submitBtn.textContent = '送出回報';
+    submitBtn.addEventListener('click', function () {
+      var content = contentInput.value.trim();
+      if (!content) { errP.className = 'error-text'; errP.textContent = '請輸入回報內容'; return; }
+
+      withBusy(submitBtn, callApiOrQueue('createReport', {
+        token: currentSession.token,
+        case_id: currentSession.case.case_id,
+        site_id: siteId || '',
+        task_id: taskId || '',
+        level: levelSelect.value,
+        content: content
+      })).then(function (res) {
+        if (res.queued) {
+          errP.className = 'hint-text';
+          errP.textContent = '目前離線，已記錄這筆回報，恢復連線後會自動送出。';
+          contentInput.value = '';
+          return;
+        }
+        if (!res.ok) { errP.className = 'error-text'; errP.textContent = res.error || '送出失敗'; return; }
+        container.hidden = true;
+        container.innerHTML = '';
+        loadIcsBoard();
+      }).catch(function (e) { errP.className = 'error-text'; errP.textContent = '連線失敗：' + e.message; });
+    });
+    container.appendChild(submitBtn);
+    container.appendChild(errP);
+  }
+
   function renderSiteCard(site, isChild) {
     var isAdmin = isEffectiveAdmin();
     var isOpen = site.status === '開設';
+    var siteReports = reportsForSite_(site.site_id);
+    var urgentCount = urgentCount_(siteReports);
 
     var card = document.createElement('div');
-    card.className = 'card site-card' + (isChild ? ' child' : '');
+    card.className = 'card site-card' + (isChild ? ' child' : '') + (urgentCount > 0 ? ' has-urgent-report' : '');
 
     var header = document.createElement('div');
     header.className = 'site-card-header';
@@ -1399,6 +1503,13 @@
     badge.className = 'badge ' + (isOpen ? 'badge-open' : 'badge-closed');
     badge.textContent = site.status;
     h3.appendChild(badge);
+    if (urgentCount > 0) {
+      var urgentBadge = document.createElement('span');
+      urgentBadge.className = 'badge badge-report-urgent';
+      urgentBadge.textContent = '⚠ 緊急回報 ' + urgentCount;
+      h3.appendChild(document.createTextNode(' '));
+      h3.appendChild(urgentBadge);
+    }
     header.appendChild(h3);
     card.appendChild(header);
 
@@ -1407,29 +1518,41 @@
     meta.textContent = '開設於 ' + formatTime(site.opened_at) + (site.closed_at ? '・撤收於 ' + formatTime(site.closed_at) : '');
     card.appendChild(meta);
 
-    if (isAdmin && isOpen) {
+    appendLatestReportLine_(card, siteReports);
+
+    if (isAdmin) {
       var actions = document.createElement('div');
       actions.className = 'site-actions';
 
-      var closeBtn = document.createElement('button');
-      closeBtn.className = 'btn-secondary';
-      closeBtn.textContent = '撤收此場地';
-      closeBtn.addEventListener('click', function () { closeSite(site.site_id, closeBtn); });
-      actions.appendChild(closeBtn);
+      if (isOpen) {
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'btn-secondary';
+        closeBtn.textContent = '撤收此場地';
+        closeBtn.addEventListener('click', function () { closeSite(site.site_id, closeBtn); });
+        actions.appendChild(closeBtn);
 
-      if (!isChild) {
-        var addChildBtn = document.createElement('button');
-        addChildBtn.className = 'btn-secondary';
-        addChildBtn.textContent = '+ 子場地';
-        addChildBtn.addEventListener('click', function () { toggleAddChildSiteForm(site.site_id); });
-        actions.appendChild(addChildBtn);
+        if (!isChild) {
+          var addChildBtn = document.createElement('button');
+          addChildBtn.className = 'btn-secondary';
+          addChildBtn.textContent = '+ 子場地';
+          addChildBtn.addEventListener('click', function () { toggleAddChildSiteForm(site.site_id); });
+          actions.appendChild(addChildBtn);
+        }
+
+        var addTaskBtn = document.createElement('button');
+        addTaskBtn.className = 'btn-secondary';
+        addTaskBtn.textContent = '+ 新增任務';
+        addTaskBtn.addEventListener('click', function () { toggleNewTaskForm(site.site_id); });
+        actions.appendChild(addTaskBtn);
       }
 
-      var addTaskBtn = document.createElement('button');
-      addTaskBtn.className = 'btn-secondary';
-      addTaskBtn.textContent = '+ 新增任務';
-      addTaskBtn.addEventListener('click', function () { toggleNewTaskForm(site.site_id); });
-      actions.appendChild(addTaskBtn);
+      var reportBtn = document.createElement('button');
+      reportBtn.className = 'btn-secondary';
+      reportBtn.textContent = '⚠ 狀況回報';
+      reportBtn.addEventListener('click', function () {
+        toggleReportForm('report-form-site-' + site.site_id, site.site_id, '');
+      });
+      actions.appendChild(reportBtn);
 
       card.appendChild(actions);
     }
@@ -1448,6 +1571,12 @@
     taskForm.hidden = true;
     card.appendChild(taskForm);
 
+    var reportForm = document.createElement('div');
+    reportForm.id = 'report-form-site-' + site.site_id;
+    reportForm.className = 'inline-form';
+    reportForm.hidden = true;
+    card.appendChild(reportForm);
+
     var tasksForSite = icsTasks.filter(function (t) { return t.site_id === site.site_id; });
     tasksForSite.forEach(function (t) { card.appendChild(renderTaskCard(t)); });
 
@@ -1465,9 +1594,11 @@
     var isAdmin = isEffectiveAdmin();
     var isActive = task.status === '派遣中';
     var overdue = isTaskOverdue(task);
+    var taskReports = reportsForTask_(task.task_id);
+    var urgentCount = urgentCount_(taskReports);
 
     var card = document.createElement('div');
-    card.className = 'task-card' + (overdue ? ' overdue' : '');
+    card.className = 'task-card' + (overdue ? ' overdue' : '') + (urgentCount > 0 ? ' has-urgent-report' : '');
 
     var header = document.createElement('div');
     header.className = 'task-header';
@@ -1488,6 +1619,13 @@
       header.appendChild(overdueBadge);
     }
 
+    if (urgentCount > 0) {
+      var urgentBadge = document.createElement('span');
+      urgentBadge.className = 'badge badge-report-urgent';
+      urgentBadge.textContent = '⚠ 緊急回報 ' + urgentCount;
+      header.appendChild(urgentBadge);
+    }
+
     card.appendChild(header);
 
     var meta = document.createElement('p');
@@ -1496,6 +1634,8 @@
       '派遣時間：' + formatTime(task.dispatched_at) +
       (task.ended_at ? '　結束時間：' + formatTime(task.ended_at) : '');
     card.appendChild(meta);
+
+    appendLatestReportLine_(card, taskReports);
 
     var memberTags = document.createElement('div');
     memberTags.className = 'member-tags';
@@ -1515,35 +1655,53 @@
     }
     card.appendChild(memberTags);
 
-    if (isAdmin && isActive) {
+    if (isAdmin) {
       var actions = document.createElement('div');
       actions.className = 'task-actions';
 
-      var manageBtn = document.createElement('button');
-      manageBtn.className = 'btn-secondary';
-      manageBtn.textContent = '增減人員';
-      manageBtn.addEventListener('click', function () { toggleManageMembersForm(task); });
-      actions.appendChild(manageBtn);
+      if (isActive) {
+        var manageBtn = document.createElement('button');
+        manageBtn.className = 'btn-secondary';
+        manageBtn.textContent = '增減人員';
+        manageBtn.addEventListener('click', function () { toggleManageMembersForm(task); });
+        actions.appendChild(manageBtn);
 
-      var doneBtn = document.createElement('button');
-      doneBtn.className = 'btn-secondary';
-      doneBtn.textContent = '標記完成';
-      doneBtn.addEventListener('click', function () { endTask(task.task_id, '完成', doneBtn); });
-      actions.appendChild(doneBtn);
+        var doneBtn = document.createElement('button');
+        doneBtn.className = 'btn-secondary';
+        doneBtn.textContent = '標記完成';
+        doneBtn.addEventListener('click', function () { endTask(task.task_id, '完成', doneBtn); });
+        actions.appendChild(doneBtn);
 
-      var abortBtn = document.createElement('button');
-      abortBtn.className = 'btn-secondary';
-      abortBtn.textContent = '中止';
-      abortBtn.addEventListener('click', function () { endTask(task.task_id, '中止', abortBtn); });
-      actions.appendChild(abortBtn);
+        var abortBtn = document.createElement('button');
+        abortBtn.className = 'btn-secondary';
+        abortBtn.textContent = '中止';
+        abortBtn.addEventListener('click', function () { endTask(task.task_id, '中止', abortBtn); });
+        actions.appendChild(abortBtn);
+      }
+
+      var reportBtn = document.createElement('button');
+      reportBtn.className = 'btn-secondary';
+      reportBtn.textContent = '⚠ 狀況回報';
+      reportBtn.addEventListener('click', function () {
+        toggleReportForm('report-form-task-' + task.task_id, task.site_id, task.task_id);
+      });
+      actions.appendChild(reportBtn);
 
       card.appendChild(actions);
 
-      var manageForm = document.createElement('div');
-      manageForm.id = 'manage-members-form-' + task.task_id;
-      manageForm.className = 'inline-form';
-      manageForm.hidden = true;
-      card.appendChild(manageForm);
+      if (isActive) {
+        var manageForm = document.createElement('div');
+        manageForm.id = 'manage-members-form-' + task.task_id;
+        manageForm.className = 'inline-form';
+        manageForm.hidden = true;
+        card.appendChild(manageForm);
+      }
+
+      var reportForm = document.createElement('div');
+      reportForm.id = 'report-form-task-' + task.task_id;
+      reportForm.className = 'inline-form';
+      reportForm.hidden = true;
+      card.appendChild(reportForm);
     }
 
     return card;
@@ -1856,7 +2014,7 @@
       tr.appendChild(timeTd);
 
       var typeTd = document.createElement('td');
-      var badgeInfo = logBadgeInfo(entry.type);
+      var badgeInfo = logBadgeInfo(entry);
       var badge = document.createElement('span');
       badge.className = 'badge ' + badgeInfo.cls;
       badge.textContent = badgeInfo.text;
@@ -1871,24 +2029,37 @@
       if (entry.type === 'task_start' || entry.type === 'task_end') {
         contentTd.textContent = '[' + entry.task_type + '] ' + entry.task_content +
           (entry.type === 'task_end' ? '（' + entry.status + '）' : '');
+      } else if (entry.type === 'status_report') {
+        contentTd.textContent = (entry.task_content ? entry.task_content + '：' : '') + entry.report_content;
+        if (entry.level === '緊急') contentTd.style.color = '#c62828';
       } else {
         contentTd.textContent = '－';
       }
       tr.appendChild(contentTd);
 
       var membersTd = document.createElement('td');
-      membersTd.textContent = (entry.members && entry.members.length > 0) ? entry.members.join('、') : '－';
+      if (entry.type === 'status_report') {
+        membersTd.textContent = entry.reported_by || '－';
+      } else {
+        membersTd.textContent = (entry.members && entry.members.length > 0) ? entry.members.join('、') : '－';
+      }
       tr.appendChild(membersTd);
 
       tbody.appendChild(tr);
     });
   }
 
-  function logBadgeInfo(type) {
+  function logBadgeInfo(entry) {
+    var type = entry.type;
     if (type === 'site_open') return { cls: 'badge-open', text: '場地開設' };
     if (type === 'site_close') return { cls: 'badge-closed', text: '場地撤收' };
     if (type === 'task_start') return { cls: 'badge-task-active', text: '任務派遣' };
     if (type === 'task_end') return { cls: 'badge-task-done', text: '任務結束' };
+    if (type === 'status_report') {
+      return entry.level === '緊急'
+        ? { cls: 'badge-report-urgent', text: '⚠ 緊急回報' }
+        : { cls: 'badge-report-normal', text: '一般回報' };
+    }
     return { cls: 'badge-closed', text: type };
   }
 
@@ -2177,13 +2348,13 @@
   document.getElementById('log-print-btn').addEventListener('click', function () { window.print(); });
 
   // ---- 離線佇列 ----
-  // 報到、批次報到、勾選檢核表、結束任務、撤收場地 這幾個動作，斷線時不會直接失敗，
+  // 報到、批次報到、勾選檢核表、結束任務、撤收場地、狀況回報 這幾個動作，斷線時不會直接失敗，
   // 而是先存進 localStorage 的佇列，畫面顯示「未同步 N 筆」，恢復連線後自動依序補送。
   // 「派遣任務」「增減人員」「建立場地」等需要即時判斷重複派遣衝突的動作，離線時無法排入佇列
   // （沒有網路就沒辦法知道現在誰在哪個任務，硬送出去可能造成錯誤的雙重派遣），這是刻意的安全考量。
 
   var OFFLINE_QUEUE_KEY = 'gcb_offline_queue';
-  var OFFLINE_QUEUEABLE = ['checkinPersonnel', 'checkinPersonnelBatch', 'toggleChecklistItem', 'endTask', 'closeSite'];
+  var OFFLINE_QUEUEABLE = ['checkinPersonnel', 'checkinPersonnelBatch', 'toggleChecklistItem', 'endTask', 'closeSite', 'createReport'];
 
   function getOfflineQueue() {
     try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); }

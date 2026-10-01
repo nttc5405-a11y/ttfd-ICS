@@ -17,7 +17,8 @@ var SHEET_SCHEMAS = {
   TaskMembers: ['id', 'task_id', 'person_id', 'joined_at', 'left_at'],
   Maps: ['map_id', 'case_id', 'site_id', 'name', 'drive_id', 'created_at'],
   EventLog: ['at', 'case_id', 'action', 'target_id', 'detail', 'actor'],
-  Marquee: ['case_id', 'content', 'enabled', 'sort']
+  Marquee: ['case_id', 'content', 'enabled', 'sort'],
+  Reports: ['report_id', 'case_id', 'site_id', 'task_id', 'level', 'content', 'reported_by', 'reported_at']
 };
 
 /**

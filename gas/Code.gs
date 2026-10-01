@@ -62,6 +62,8 @@ function doPost(e) {
         return jsonResponse_(handleUpdateTaskMembers_(body));
       case 'endTask':
         return jsonResponse_(handleEndTask_(body));
+      case 'createReport':
+        return jsonResponse_(handleCreateReport_(body));
       case 'getWorkLog':
         return jsonResponse_(handleGetWorkLog_(body));
       case 'getReport':

@@ -39,6 +39,9 @@ function handleGetWorkLog_(body) {
   var siteNameById = {};
   sites.forEach(function (s) { siteNameById[s.site_id] = s.name; });
 
+  var taskById = {};
+  tasks.forEach(function (t) { taskById[t.task_id] = t; });
+
   tasks.forEach(function (t) {
     var members = membersByTask[t.task_id] || [];
     var siteName = siteNameById[t.site_id] || '（未知場地）';
@@ -63,6 +66,20 @@ function handleGetWorkLog_(body) {
         status: t.status
       });
     }
+  });
+
+  reportsForCase_(caseId).forEach(function (r) {
+    var task = r.task_id ? taskById[r.task_id] : null;
+    var siteId = r.site_id || (task ? task.site_id : '');
+    entries.push({
+      at: r.reported_at,
+      type: 'status_report',
+      level: r.level,
+      site_name: siteId ? (siteNameById[siteId] || '（未知場地）') : '（未綁定場地）',
+      task_content: task ? ('[' + task.type + '] ' + task.content) : '',
+      report_content: r.content,
+      reported_by: r.reported_by
+    });
   });
 
   entries.sort(function (a, b) { return a.at < b.at ? -1 : (a.at > b.at ? 1 : 0); });
