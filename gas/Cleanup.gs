@@ -48,6 +48,9 @@ function setupCaseDeleteTool() {
   if (!sheet) sheet = ss.insertSheet(DELETE_TOOL_SHEET_NAME);
   sheet.clear();
   sheet.clearFormats();
+  // clear() 不會清掉資料驗證規則（例如舊版工具在 B2 設過的下拉選單限制），
+  // 留著的話之後寫入新版面的文字會違反舊規則而報錯，這裡用整張表的範圍確保清乾淨。
+  sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), 1), Math.max(sheet.getMaxColumns(), 1)).clearDataValidations();
 
   sheet.getRange('A1').setValue('勾選要刪除的案件（可以勾一筆或多筆），再用上方「案件管理」選單執行刪除。會連同所有關聯資料一起永久刪除，無法復原！')
     .setFontWeight('bold').setFontColor('#c62828');
