@@ -102,16 +102,53 @@ function handleCheckinPersonnel_(body) {
 /**
  * action: checkinPersonnelBatch（批次報到／預先匯入名冊，同一套機制：貼上多行文字）
  * body: { action:'checkinPersonnelBatch', token, case_id, text }
- * 每行一人，欄位順序：單位、子單位、姓名、專長、報到位置。分隔符號依序偵測：
- * 有 Tab 用 Tab 分（從 Excel/試算表複製貼上會是這種）；沒有 Tab 但有逗號就用逗號分；
- * 都沒有就把整行當姓名（一行只打一個名字也可以）。姓名是必填，缺姓名的行會被跳過並列出原因，
- * 不會讓整批失敗。
+ *
+ * 分隔符號依序偵測：有 Tab 用 Tab 分（從 Excel/試算表複製貼上會是這種）；
+ * 沒有 Tab 但有逗號就用逗號分；都沒有就把整行當姓名。
+ * 欄位數決定意思（這是刻意設計成「欄位數＝格式」，不猜單位名稱在哪裡結束，
+ * 避免位置配對猜錯導致資料靜默錯置）：
+ *   3 欄以上：單位、子單位、姓名、[專長]、[報到位置]（原本的完整格式，不變）
+ *   剛好 2 欄：單位、姓名（同一單位多人用這個，子單位留空）
+ *   只有 1 欄（沒有 Tab/逗號）：整行當姓名，不含單位
+ * 「姓名」那一欄可以用「.」分隔同一單位/子單位的多個人，例如：
+ *   成功分隊,A.B.C.D.E          → 5 人，都是「成功分隊」
+ *   都蘭分隊,A小隊,F.G.H.J      → 4 人，都是「都蘭分隊／A小隊」
+ * 姓名是必填，缺姓名的行會被跳過並列出原因，不會讓整批失敗。
  */
 function splitBatchLine_(line) {
   if (line.indexOf('\t') !== -1) return line.split('\t').map(function (c) { return c.trim(); });
   if (line.indexOf(',') !== -1) return line.split(',').map(function (c) { return c.trim(); });
-  return ['', '', line.trim(), '', ''];
+  return [line.trim()];
 }
+
+/**
+ * 依欄位數判斷這一行的意思，並把「姓名」欄用「.」展開成多個姓名。
+ * 回傳 { unit, sub_unit, names:[...], specialty, checkin_zone }，names 可能是空陣列（代表這行沒姓名）。
+ */
+function parseBatchLine_(line) {
+  var cols = splitBatchLine_(line);
+  var unit = '', subUnit = '', namesField = '', specialty = '', zone = '';
+
+  if (cols.length >= 3) {
+    unit = cols[0] || '';
+    subUnit = cols[1] || '';
+    namesField = cols[2] || '';
+    specialty = cols[3] || '';
+    zone = cols[4] || '';
+  } else if (cols.length === 2) {
+    unit = cols[0] || '';
+    namesField = cols[1] || '';
+  } else {
+    namesField = cols[0] || '';
+  }
+
+  var names = namesField.split('.')
+    .map(function (n) { return n.trim(); })
+    .filter(function (n) { return n; });
+
+  return { unit: unit, sub_unit: subUnit, names: names, specialty: specialty, checkin_zone: zone || '指揮站' };
+}
+
 function handleCheckinPersonnelBatch_(body) {
   var caseId = body.case_id;
   var auth = requireAuth_(body.token, 'admin', caseId);
@@ -129,25 +166,26 @@ function handleCheckinPersonnelBatch_(body) {
     var skipped = [];
 
     lines.forEach(function (line, idx) {
-      var cols = splitBatchLine_(line);
-      var name = cols[2] || '';
-      if (!name) {
-        skipped.push({ line: idx + 1, text: line, reason: '缺少姓名（第 3 欄）' });
+      var parsed = parseBatchLine_(line);
+      if (parsed.names.length === 0) {
+        skipped.push({ line: idx + 1, text: line, reason: '缺少姓名' });
         return;
       }
-      var personId = newId_();
-      appendRow_(sheet, SHEET_SCHEMAS.Personnel, {
-        person_id: personId,
-        case_id: caseId,
-        unit: cols[0] || '',
-        sub_unit: cols[1] || '',
-        name: name,
-        specialty: cols[3] || '',
-        checkin_zone: cols[4] || '指揮站',
-        checkin_at: nowIso_(),
-        left_at: ''
+      parsed.names.forEach(function (name) {
+        var personId = newId_();
+        appendRow_(sheet, SHEET_SCHEMAS.Personnel, {
+          person_id: personId,
+          case_id: caseId,
+          unit: parsed.unit,
+          sub_unit: parsed.sub_unit,
+          name: name,
+          specialty: parsed.specialty,
+          checkin_zone: parsed.checkin_zone,
+          checkin_at: nowIso_(),
+          left_at: ''
+        });
+        created.push({ person_id: personId, name: name });
       });
-      created.push({ person_id: personId, name: name });
     });
 
     if (created.length > 0) {

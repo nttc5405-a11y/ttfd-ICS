@@ -523,11 +523,15 @@
           <p class="hint-text">
             <strong>① 從 Excel／Google 試算表複製整塊貼上</strong>（欄位自動是 Tab 分隔，最推薦，最不容易打錯欄位）。<br>
             <strong>② 直接在這裡打字，欄位中間按 Tab 鍵跳到下一欄</strong>（這個框已特別設定，按 Tab 不會跳出去，會直接輸入跳格符號，體驗跟 Excel 一樣）。<br>
-            <strong>③ 用逗號「,」分隔欄位，或整行只打姓名</strong>（其他欄位留空不打，例如只想很快報到一串名單）。
+            <strong>③ 用逗號「,」分隔欄位，或整行只打姓名</strong>（其他欄位留空不打，例如只想很快報到一串名單）。<br>
+            <strong>④ 同一單位一次報到多人</strong>：一行只打兩欄「單位,姓名.姓名.姓名」（姓名中間用「.」分隔），
+            或三欄「單位,子單位,姓名.姓名.姓名」，這些人會共用同一個單位／子單位。
           </p>
           <div class="batch-example" id="batch-example-text">第一救護隊,A小隊,王小明,EMT,指揮站
 第一救護隊,A小隊,李小華,,指揮站
-,,陳大同,,</div>
+,,陳大同,,
+成功分隊,王小明.李小華.陳大文
+都蘭分隊,A小隊,張三.李四.王五</div>
           <button id="p-batch-fill-example-btn" class="btn-secondary" style="width:100%;">填入上面的範例試試看</button>
           <textarea id="p-batch-text" rows="6" placeholder="單位,子單位,姓名,專長,報到位置"></textarea>
           <button id="p-batch-btn">批次報到</button>
