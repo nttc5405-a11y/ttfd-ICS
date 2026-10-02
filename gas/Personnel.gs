@@ -65,6 +65,15 @@ function personnelStatusMap_(caseId) {
 /**
  * action: checkinPersonnel（單筆報到）
  * body: { action:'checkinPersonnel', token, case_id, unit, sub_unit, name, specialty, checkin_zone }
+ *
+ * 允許「重新報到」：同一個人離場後（例如隔天又來），再報到一次會建立**新的一筆**報到紀錄
+ * （新的 person_id），不會去找回原本那筆、也不會擋下來——這是刻意的設計，原因：
+ *   1. 工作記事要完整留存「每一次」報到/簽退的歷史，不能因為重新報到就覆蓋掉舊紀錄。
+ *   2. 跟 TaskMembers（一個人可以在同一個任務有好幾段加入/離開紀錄）的設計邏輯一致。
+ * 代價：報表看板「全案」模式的人數/報到人數統計，會把同一人的兩次報到當成兩筆分開計算
+ * （不會自動合併成一人），這是已知、刻意接受的限制，不是 bug；報表頁面上有加註說明。
+ * 為了避免看起來像誤植重複，回傳時如果偵測到「同單位、同姓名」之前有簽退過的紀錄，
+ * 會附上 rejoin_note，前端會顯示一句提醒文字（純提示，不會擋下報到）。
  */
 function handleCheckinPersonnel_(body) {
   var caseId = body.case_id;
@@ -81,6 +90,10 @@ function handleCheckinPersonnel_(body) {
     checkin_zone: String(body.checkin_zone || '').trim() || '指揮站'
   };
 
+  var priorCheckedOut = sheetToObjects_(getSheet_('Personnel')).some(function (p) {
+    return p.case_id === caseId && p.unit === entry.unit && p.name === entry.name && p.left_at;
+  });
+
   return withLock_(function () {
     var personId = newId_();
     appendRow_(getSheet_('Personnel'), SHEET_SCHEMAS.Personnel, {
@@ -95,7 +108,12 @@ function handleCheckinPersonnel_(body) {
       left_at: ''
     });
     appendEventLog_(caseId, 'checkin', personId, entry.name, auth.operatorName);
-    return { ok: true, person_id: personId };
+    var result = { ok: true, person_id: personId };
+    if (priorCheckedOut) {
+      result.rejoin_note = '「' + entry.name + '」在' + (entry.unit ? '「' + entry.unit + '」' : '這個案件') +
+        '之前已經有簽退過的報到紀錄，這次會視為重新報到（新增一筆，不會覆蓋舊紀錄）。';
+    }
+    return result;
   });
 }
 

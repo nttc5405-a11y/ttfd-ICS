@@ -232,6 +232,12 @@
   .log-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
   .log-toolbar select { width: auto; min-width: 140px; }
   .log-toolbar button { width: auto; margin-left: auto; }
+  .log-filter-label { color: var(--muted, #888); font-size: 0.9rem; }
+  .log-filter-checkbox {
+    display: inline-flex; align-items: center; gap: 4px;
+    width: auto; margin: 0; font-size: 0.9rem; font-weight: normal;
+  }
+  .log-filter-checkbox input { width: auto; }
 
   .task-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
   .task-header strong { font-size: 0.95rem; }
@@ -634,14 +640,11 @@
       <div id="panel-log" class="case-panel" hidden>
         <p id="log-error" class="error-text"></p>
         <div class="log-toolbar no-print">
-          <label for="log-filter-type" style="display:inline; margin-right:6px;">篩選類型</label>
-          <select id="log-filter-type" style="width:auto; display:inline-block;">
-            <option value="all">全部</option>
-            <option value="site">場地</option>
-            <option value="task">任務</option>
-            <option value="personnel">人員</option>
-            <option value="report">狀況回報</option>
-          </select>
+          <span class="log-filter-label">顯示類型：</span>
+          <label class="log-filter-checkbox"><input type="checkbox" id="log-filter-site" checked>場地</label>
+          <label class="log-filter-checkbox"><input type="checkbox" id="log-filter-task" checked>任務</label>
+          <label class="log-filter-checkbox"><input type="checkbox" id="log-filter-personnel" checked>人員</label>
+          <label class="log-filter-checkbox"><input type="checkbox" id="log-filter-report" checked>狀況回報</label>
           <button id="log-print-btn" class="btn-secondary">列印本頁／另存 PDF</button>
         </div>
         <div class="card">
@@ -685,10 +688,18 @@
           <h3>統計</h3>
           <div class="table-scroll">
             <table class="data-table" id="report-table">
-              <thead><tr><th id="report-group-header">分組</th><th>人數</th><th>人次</th><th>人時</th><th>報到人數</th></tr></thead>
+              <thead><tr>
+                <th id="report-group-header">分組</th>
+                <th title="同一人若離場後重新報到，算成兩筆分開計算，不會自動合併成一人">人數 ⓘ</th>
+                <th>人次</th>
+                <th>人時</th>
+                <th title="同一人若離場後重新報到，算成兩筆分開計算，不會自動合併成一人">報到人數 ⓘ</th>
+              </tr></thead>
               <tbody id="report-tbody"></tbody>
             </table>
           </div>
+          <p class="hint-text">ⓘ 「人數」「報到人數」是依報到紀錄計算：同一人如果離場後又重新報到（例如隔天再來），
+            會算成兩筆分開計算，不會自動合併成一人；「人次」「人時」則是依任務出勤紀錄計算，不受影響。</p>
         </div>
 
         <div class="card">
@@ -1198,6 +1209,16 @@
       groups[key].push(p);
     });
 
+    // 同一單位內依姓名、再依報到時間排序：同一個人如果離場後又重新報到（例如隔天再來），
+    // 建立的是新的一筆報到紀錄（刻意設計，見 Personnel.gs 註解），排序後這些紀錄會排在一起、
+    // 依時間先後顯示，一看就知道是「同一個人的第幾次報到」，不會被其他人的紀錄打散。
+    Object.keys(groups).forEach(function (key) {
+      groups[key].sort(function (a, b) {
+        if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+        return a.checkin_at < b.checkin_at ? -1 : (a.checkin_at > b.checkin_at ? 1 : 0);
+      });
+    });
+
     var unitNames = Object.keys(groups).sort(function (a, b) {
       if (a === UNFILLED_UNIT_LABEL) return 1;
       if (b === UNFILLED_UNIT_LABEL) return -1;
@@ -1375,6 +1396,7 @@
         if (!res.ok) { errP.className = 'error-text'; errP.textContent = res.error || '報到失敗'; return; }
         container.hidden = true;
         container.innerHTML = '';
+        if (res.rejoin_note) window.alert(res.rejoin_note);
         loadPersonnel();
       }).catch(function (e) { errP.className = 'error-text'; errP.textContent = '連線失敗：' + e.message; });
     });
@@ -1442,6 +1464,9 @@
         errEl.className = 'error-text';
         errEl.textContent = res.error || '報到失敗';
         return;
+      } else if (res.rejoin_note) {
+        errEl.className = 'hint-text';
+        errEl.textContent = res.rejoin_note;
       } else {
         errEl.textContent = '';
       }
@@ -2393,15 +2418,23 @@
       }).catch(function (e) { errEl.textContent = '連線失敗：' + e.message; });
   }
 
+  var WORKLOG_FILTER_CATEGORIES = ['site', 'task', 'personnel', 'report'];
+
+  // 多選篩選：每個類型一個勾選框，全部取消勾只會看到空列表（不是自動變成「全部顯示」），
+  // 這樣才能真的把「人員」這種想暫時隱藏的類型關掉，不用每次都重新全選。
   function applyWorkLogFilter() {
-    var filter = document.getElementById('log-filter-type').value;
-    var filtered = filter === 'all'
-      ? workLogEntries
-      : workLogEntries.filter(function (e) { return WORKLOG_CATEGORY_MAP[e.type] === filter; });
+    var activeCategories = WORKLOG_FILTER_CATEGORIES.filter(function (cat) {
+      return document.getElementById('log-filter-' + cat).checked;
+    });
+    var filtered = workLogEntries.filter(function (e) {
+      return activeCategories.indexOf(WORKLOG_CATEGORY_MAP[e.type]) !== -1;
+    });
     renderWorkLog(filtered);
   }
 
-  document.getElementById('log-filter-type').addEventListener('change', applyWorkLogFilter);
+  WORKLOG_FILTER_CATEGORIES.forEach(function (cat) {
+    document.getElementById('log-filter-' + cat).addEventListener('change', applyWorkLogFilter);
+  });
 
   function renderWorkLog(entries) {
     var tbody = document.getElementById('log-tbody');
