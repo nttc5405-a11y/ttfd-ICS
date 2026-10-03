@@ -476,12 +476,15 @@
         <div id="tab-create" class="tab-panel" hidden>
           <div class="card">
             <label>案件類別</label>
-            <select id="create-category">
-              <option value="山域">山域</option>
-              <option value="水域">水域</option>
-              <option value="火警">火警</option>
-              <option value="化災">化災</option>
-            </select>
+            <input type="text" id="create-category" list="case-category-list" placeholder="山域／水域／火警／化災，或自行輸入其他類別">
+            <datalist id="case-category-list">
+              <option value="山域"></option>
+              <option value="水域"></option>
+              <option value="火警"></option>
+              <option value="化災"></option>
+            </datalist>
+            <p class="hint-text">自訂類別不會有現成的檢核表範本與山域逾時警示，需要的話之後可以自己到
+              Checklists 工作表補上該類別的檢核項目。</p>
             <label>案件名稱</label>
             <input type="text" id="create-name" placeholder="例如：○○山搜救">
             <label>檢視碼</label>

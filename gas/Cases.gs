@@ -3,7 +3,12 @@
  * 對應 doPost 的 action：createCase、enterCase。
  */
 
-var CASE_CATEGORIES = ['山域', '水域', '火警', '化災'];
+// 案件類別不再限制固定清單，前端是自由輸入（附常用選項快選），這裡只檢查有沒有填。
+// CASE_CATEGORY_SUGGESTIONS 只是給前端 <datalist> 快選用的常用建議，不是驗證用的白名單。
+// 注意：山域類別的「逾時警示」(見前端 isTaskOverdue) 跟 Checklists 範本比對都是直接比對
+// category 文字，自訂類別不會有逾時警示、也不會有現成檢核表範本（跟範本用完的既有類別一樣，
+// 檢核表會是空的，需要自己到 Checklists 工作表補上該類別的項目）。
+var CASE_CATEGORY_SUGGESTIONS = ['山域', '水域', '火警', '化災'];
 
 /**
  * action: createCase
@@ -11,14 +16,14 @@ var CASE_CATEGORIES = ['山域', '水域', '火警', '化災'];
  * 成功直接核發 admin token（建立者即為第一個管理者）。
  */
 function handleCreateCase_(body) {
-  var category = body.category;
+  var category = String(body.category || '').trim();
   var name = String(body.name || '').trim();
   var viewCode = String(body.view_code || '');
   var adminCode = String(body.admin_code || '');
   var operatorName = String(body.operator_name || '').trim();
 
-  if (CASE_CATEGORIES.indexOf(category) === -1) {
-    return { ok: false, error: '案件類別不正確，需為山域/水域/火警/化災之一' };
+  if (!category) {
+    return { ok: false, error: '請輸入案件類別' };
   }
   if (!name) {
     return { ok: false, error: '請輸入案件名稱' };
