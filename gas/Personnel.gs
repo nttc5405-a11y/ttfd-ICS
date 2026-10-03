@@ -27,6 +27,38 @@ function handleGetPersonnel_(body) {
 }
 
 /**
+ * action: updatePersonnel（編輯既有人員的基本資料：單位/子單位/姓名/專長/報到位置）
+ * body: { action:'updatePersonnel', token, case_id, person_id, unit, sub_unit, name, specialty, checkin_zone }
+ * 只改這幾個基本資料欄位，不會動到 checkin_at／left_at（報到/簽退時間要用對應的報到/簽退
+ * 動作去改，不是這裡——避免編輯基本資料時不小心連動改掉時間軸，造成工作記事時間跟著跑掉）。
+ */
+function handleUpdatePersonnel_(body) {
+  var caseId = body.case_id;
+  var auth = requireAuth_(body.token, 'admin', caseId);
+  var personId = body.person_id;
+
+  var name = String(body.name || '').trim();
+  if (!name) return { ok: false, error: '請輸入姓名' };
+
+  var patch = {
+    unit: String(body.unit || '').trim(),
+    sub_unit: String(body.sub_unit || '').trim(),
+    name: name,
+    specialty: String(body.specialty || '').trim(),
+    checkin_zone: String(body.checkin_zone || '').trim() || '指揮站'
+  };
+
+  return withLock_(function () {
+    var updated = updateRow_('Personnel', function (r) {
+      return r.case_id === caseId && r.person_id === personId;
+    }, patch);
+    if (!updated) return { ok: false, error: '找不到這位人員' };
+    appendEventLog_(caseId, 'update_personnel', personId, name, auth.operatorName);
+    return { ok: true };
+  });
+}
+
+/**
  * person_id → 姓名 對照表，給 Sites.gs/Tasks.gs 顯示帶隊官與派遣人員姓名用。
  */
 function personnelNameMap_(caseId) {

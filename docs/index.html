@@ -248,6 +248,10 @@
   .member-tag { background: #d7f0d9; border-radius: 4px; padding: 2px 6px; font-size: 0.8rem; }
   .member-tag-dispatched { background: #ffddab; }
 
+  .unit-quick-select { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .unit-quick-select select { width: auto; flex: 1; margin: 0; }
+  .unit-quick-select button { width: auto; margin: 0; padding: 6px 10px; font-size: 0.85rem; }
+
   .checkbox-list {
     max-height: 220px;
     overflow-y: auto;
@@ -1305,8 +1309,15 @@
       th.textContent = h;
       headRow.appendChild(th);
     });
+    if (isAdmin) {
+      var opTh = document.createElement('th');
+      opTh.textContent = '操作';
+      headRow.appendChild(opTh);
+    }
     thead.appendChild(headRow);
     table.appendChild(thead);
+
+    var editFormId = 'unit-edit-form-' + unitSlug_(unitName);
 
     people.forEach(function (p) {
       var tr = document.createElement('tr');
@@ -1332,13 +1343,116 @@
       badge.textContent = p.status;
       statusTd.appendChild(badge);
       tr.appendChild(statusTd);
+      if (isAdmin) {
+        var opTd = document.createElement('td');
+        var editBtn = document.createElement('button');
+        editBtn.className = 'btn-secondary';
+        editBtn.textContent = '✎ 編輯';
+        editBtn.addEventListener('click', function () { toggleEditPersonForm_(editFormId, p); });
+        opTd.appendChild(editBtn);
+        tr.appendChild(opTd);
+      }
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
     tableWrap.appendChild(table);
     card.appendChild(tableWrap);
 
+    if (isAdmin) {
+      var editFormContainer = document.createElement('div');
+      editFormContainer.id = editFormId;
+      editFormContainer.className = 'inline-form';
+      editFormContainer.hidden = true;
+      card.appendChild(editFormContainer);
+    }
+
     return card;
+  }
+
+  /**
+   * 編輯既有人員的基本資料（單位/子單位/姓名/專長/報到位置），不碰報到/簽退時間——
+   * 那兩個時間要用報到/簽退本身的動作改，這裡只是訂正打錯的名字、單位之類的基本資料。
+   * 同一個單位區塊共用一個編輯表單容器，點哪一列就用哪個人的資料填進去。
+   */
+  function toggleEditPersonForm_(formId, person) {
+    var container = document.getElementById(formId);
+    if (!container) return;
+    var alreadyEditingThisPerson = !container.hidden && container.getAttribute('data-person-id') === person.person_id;
+    container.hidden = false;
+    container.innerHTML = '';
+    if (alreadyEditingThisPerson) { container.hidden = true; container.removeAttribute('data-person-id'); return; }
+    container.setAttribute('data-person-id', person.person_id);
+
+    var title = document.createElement('p');
+    title.className = 'hint-text';
+    title.textContent = '編輯「' + person.name + '」的基本資料：';
+    container.appendChild(title);
+
+    var unitLabel = document.createElement('label'); unitLabel.textContent = '單位';
+    var unitInput = document.createElement('input'); unitInput.type = 'text'; unitInput.value = person.unit || '';
+    container.appendChild(unitLabel);
+    container.appendChild(unitInput);
+
+    var subLabel = document.createElement('label'); subLabel.textContent = '子單位';
+    var subInput = document.createElement('input'); subInput.type = 'text'; subInput.value = person.sub_unit || '';
+    container.appendChild(subLabel);
+    container.appendChild(subInput);
+
+    var nameLabel = document.createElement('label'); nameLabel.textContent = '姓名';
+    var nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.value = person.name || '';
+    container.appendChild(nameLabel);
+    container.appendChild(nameInput);
+
+    var specialtyLabel = document.createElement('label'); specialtyLabel.textContent = '專長';
+    var specialtyInput = document.createElement('input'); specialtyInput.type = 'text'; specialtyInput.value = person.specialty || '';
+    container.appendChild(specialtyLabel);
+    container.appendChild(specialtyInput);
+
+    var zoneLabel = document.createElement('label'); zoneLabel.textContent = '報到位置';
+    var zoneInput = document.createElement('input'); zoneInput.type = 'text'; zoneInput.value = person.checkin_zone || '指揮站';
+    container.appendChild(zoneLabel);
+    container.appendChild(zoneInput);
+
+    var errP = document.createElement('p');
+    errP.className = 'error-text';
+
+    var saveBtn = document.createElement('button');
+    saveBtn.textContent = '儲存';
+    saveBtn.addEventListener('click', function () {
+      var name = nameInput.value.trim();
+      if (!name) { errP.className = 'error-text'; errP.textContent = '請輸入姓名'; return; }
+      errP.textContent = '';
+
+      withBusy(saveBtn, callApi('updatePersonnel', {
+        token: currentSession.token,
+        case_id: currentSession.case.case_id,
+        person_id: person.person_id,
+        unit: unitInput.value.trim(),
+        sub_unit: subInput.value.trim(),
+        name: name,
+        specialty: specialtyInput.value.trim(),
+        checkin_zone: zoneInput.value.trim() || '指揮站'
+      })).then(function (res) {
+        if (!res.ok) { errP.className = 'error-text'; errP.textContent = res.error || '儲存失敗'; return; }
+        container.hidden = true;
+        container.innerHTML = '';
+        container.removeAttribute('data-person-id');
+        loadPersonnel();
+      }).catch(function (e) { errP.className = 'error-text'; errP.textContent = '連線失敗：' + e.message; });
+    });
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-secondary';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', function () {
+      container.hidden = true;
+      container.innerHTML = '';
+      container.removeAttribute('data-person-id');
+    });
+
+    container.appendChild(saveBtn);
+    container.appendChild(cancelBtn);
+    container.appendChild(errP);
   }
 
   /**
@@ -1359,6 +1473,17 @@
 
     var nameLabel = document.createElement('label'); nameLabel.textContent = '姓名';
     var nameInput = document.createElement('input'); nameInput.type = 'text';
+    nameInput.placeholder = '可一次輸入多人：打完一個姓名按 Tab 或逗號接著打下一個';
+    // 按 Tab 不跳到下一欄，改插入逗號，方便一次輸入同單位好幾個人（跟批次報到的「同一單位
+    // 多人」寫法共用後端邏輯：這裡只是把姓名欄打散成多個姓名，送出時組成一行批次格式）。
+    nameInput.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab') return;
+      e.preventDefault();
+      var start = this.selectionStart;
+      var end = this.selectionEnd;
+      this.value = this.value.substring(0, start) + ',' + this.value.substring(end);
+      this.selectionStart = this.selectionEnd = start + 1;
+    });
     container.appendChild(nameLabel);
     container.appendChild(nameInput);
 
@@ -1378,19 +1503,28 @@
     var submitBtn = document.createElement('button');
     submitBtn.textContent = unitName ? ('新增到「' + unitName + '」') : '新增人員';
     submitBtn.addEventListener('click', function () {
-      var name = nameInput.value.trim();
-      if (!name) { errP.className = 'error-text'; errP.textContent = '請輸入姓名'; return; }
+      var names = nameInput.value.split(',').map(function (n) { return n.trim(); }).filter(function (n) { return n; });
+      if (names.length === 0) { errP.className = 'error-text'; errP.textContent = '請輸入姓名'; return; }
       errP.textContent = '';
 
-      withBusy(submitBtn, callApiOrQueue('checkinPersonnel', {
-        token: currentSession.token,
-        case_id: currentSession.case.case_id,
-        unit: unitName,
-        sub_unit: subInput.value.trim(),
-        name: name,
-        specialty: specialtyInput.value.trim(),
-        checkin_zone: zoneInput.value.trim() || '指揮站'
-      })).then(function (res) {
+      var subUnit = subInput.value.trim();
+      var specialty = specialtyInput.value.trim();
+      var zone = zoneInput.value.trim() || '指揮站';
+
+      // 只有一個人：照舊叫 checkinPersonnel（這條路有「重新報到」提醒）。
+      // 兩個人以上：組成一行批次格式叫 checkinPersonnelBatch（跟批次報到「同單位多人」共用邏輯，
+      // 姓名欄用「.」分隔），不用另外寫一套後端。
+      var apiCall = names.length === 1
+        ? callApiOrQueue('checkinPersonnel', {
+            token: currentSession.token, case_id: currentSession.case.case_id,
+            unit: unitName, sub_unit: subUnit, name: names[0], specialty: specialty, checkin_zone: zone
+          })
+        : callApiOrQueue('checkinPersonnelBatch', {
+            token: currentSession.token, case_id: currentSession.case.case_id,
+            text: [unitName, subUnit, names.join('.'), specialty, zone].join(',')
+          });
+
+      withBusy(submitBtn, apiCall).then(function (res) {
         if (res.queued) {
           errP.className = 'hint-text';
           errP.textContent = '目前離線，已記錄這筆報到，恢復連線後會自動送出。';
@@ -1400,6 +1534,10 @@
         container.hidden = true;
         container.innerHTML = '';
         if (res.rejoin_note) window.alert(res.rejoin_note);
+        if (res.skipped && res.skipped.length > 0) {
+          window.alert('已新增 ' + res.created_count + ' 人，略過 ' + res.skipped.length + ' 筆：\n' +
+            res.skipped.map(function (s) { return s.reason; }).join('\n'));
+        }
         loadPersonnel();
       }).catch(function (e) { errP.className = 'error-text'; errP.textContent = '連線失敗：' + e.message; });
     });
@@ -2148,6 +2286,7 @@
       cb.type = 'checkbox';
       cb.value = p.person_id;
       cb.checked = selectedIds.indexOf(p.person_id) !== -1;
+      cb.setAttribute('data-unit', p.unit || UNFILLED_UNIT_LABEL);
       var span = document.createElement('span');
       span.textContent = p.name + '（' + (p.unit || '無單位') + '・' + p.status + '）';
       label.appendChild(cb);
@@ -2163,6 +2302,54 @@
       container.appendChild(divider);
       dispatched.forEach(addRow);
     }
+  }
+
+  /**
+   * 整組勾選：選一個單位、按「整組勾選」，把派遣人員勾選清單裡這個單位的人全部勾起來
+   * （離場的人本來就不在清單裡，不會被勾到）。選了已經在任務中的人一樣會勾起來——
+   * 之後送出任務還是會照常跳重複派遣警告，不會因為用整組勾選就跳過那層確認。
+   * 回傳一個 DOM 元素，放在 buildPersonnelCheckboxList 產生的清單上方。
+   */
+  function buildUnitQuickSelect_(checkboxListContainer) {
+    var wrap = document.createElement('div');
+    wrap.className = 'unit-quick-select';
+
+    var select = document.createElement('select');
+    var emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = '整組勾選：選單位…';
+    select.appendChild(emptyOpt);
+
+    var units = [];
+    icsPersonnel.forEach(function (p) {
+      var u = p.unit || UNFILLED_UNIT_LABEL;
+      if (units.indexOf(u) === -1) units.push(u);
+    });
+    units.sort(function (a, b) {
+      if (a === UNFILLED_UNIT_LABEL) return 1;
+      if (b === UNFILLED_UNIT_LABEL) return -1;
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+    units.forEach(function (u) {
+      var opt = document.createElement('option');
+      opt.value = u;
+      opt.textContent = u;
+      select.appendChild(opt);
+    });
+
+    var applyBtn = document.createElement('button');
+    applyBtn.className = 'btn-secondary';
+    applyBtn.textContent = '套用';
+    applyBtn.addEventListener('click', function () {
+      if (!select.value) return;
+      Array.prototype.forEach.call(checkboxListContainer.querySelectorAll('input[type="checkbox"]'), function (cb) {
+        if (cb.getAttribute('data-unit') === select.value) cb.checked = true;
+      });
+    });
+
+    wrap.appendChild(select);
+    wrap.appendChild(applyBtn);
+    return wrap;
   }
 
   function getCheckedValues(container) {
@@ -2252,6 +2439,7 @@
     container.appendChild(membersLabel);
     var checkboxList = document.createElement('div'); checkboxList.className = 'checkbox-list';
     buildPersonnelCheckboxList(checkboxList, []);
+    container.appendChild(buildUnitQuickSelect_(checkboxList));
     container.appendChild(checkboxList);
 
     var errP = document.createElement('p'); errP.className = 'error-text';
@@ -2336,6 +2524,7 @@
     checkboxList.className = 'checkbox-list';
     var currentIds = task.members.filter(function (m) { return !m.left_at; }).map(function (m) { return m.person_id; });
     buildPersonnelCheckboxList(checkboxList, currentIds);
+    container.appendChild(buildUnitQuickSelect_(checkboxList));
     container.appendChild(checkboxList);
 
     var errP = document.createElement('p');

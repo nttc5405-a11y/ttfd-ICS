@@ -52,6 +52,8 @@ function doPost(e) {
         return jsonResponse_(handleCheckinPersonnelBatch_(body));
       case 'checkoutPersonnel':
         return jsonResponse_(handleCheckoutPersonnel_(body));
+      case 'updatePersonnel':
+        return jsonResponse_(handleUpdatePersonnel_(body));
       case 'getIcsBoard':
         return jsonResponse_(handleGetIcsBoard_(body));
       case 'createSite':
